@@ -4,6 +4,12 @@
 
 Notes live in `wiki/`. Vimwiki generates a static HTML version into `wiki_html/`.
 
+Regenerate from the command line (without opening vim interactively):
+
+```sh
+vim -c "VimwikiAll2HTML" -c "qa!"
+```
+
 Open the generated site locally:
 
 ```sh
