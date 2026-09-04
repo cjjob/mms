@@ -1,0 +1,28 @@
+# The title comes from the file name. 
+
+# Number from 000-999 to uniquely identify this note.
+ID: 13
+
+
+# Secondary comment to support the main idea.
+# Main idea will come from title.
+# This will likely be a caption to overlay on video form.
+Subtitle: No one ever got good by quitting
+
+
+# This fleshes the idea out more fully.
+# Keep these within 200 words.
+# It will be a single, justified paragraph.
+Description
+
+
+# URLs to supporting videos.
+# Short and, if exists, extended.
+Links:
+
+
+# Comma separated list of other related ideas.
+# Only pass in their numeric ID.
+# The generation script can handle linking etc.
+# 000-999
+Related: 69, 420
