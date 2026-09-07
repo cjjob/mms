@@ -1,7 +1,9 @@
-# The title comes from the file name. 
+# Number from 000-999. Comes from the file name.
+ID:
 
-# Number from 000-999 to uniquely identify this note.
-ID: 13
+
+# Axiom / Core / Credo / Doctrine / Dogma / Essence / Gist / Germ / Heart / Kernel / Mantra / Maxim / Motto / Nub / Nucleus / Principle / Seed / Slogan / Tenet / Thesis / Watchword
+Title: Go on
 
 
 # Secondary comment to support the main idea.
@@ -14,6 +16,7 @@ Subtitle: No one ever got good by quitting
 # Keep these within 200 words.
 # It will be a single, justified paragraph.
 Description
+Would depend on the title. Something motivational and insightful ideally goes here!
 
 
 # URLs to supporting videos.
@@ -23,6 +26,7 @@ Links:
 
 # Comma separated list of other related ideas.
 # Only pass in their numeric ID.
-# The generation script can handle linking etc.
+# e.g. 069, 420
+# The generation script handles linking etc.
 # 000-999
-Related: 69, 420
+Related:
