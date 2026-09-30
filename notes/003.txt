@@ -1,0 +1,47 @@
+ID:
+
+
+Title: Just don't quit
+
+
+Subtitle: The only way to guarantee failure is to quit.
+
+
+Description
+Do anything other than quit.
+
+You don't have to do everything to it's end. Sometimes things simply aren't for you. That's not quitting. If you stop, reorient, and continue in a new direction... that's expected. It's normal. It's progress.
+
+But *do not quit on yourself*.
+
+Also beware or reorienting too often. This could be quitting in disguise. If everything outside is always wrong, you need to look inside.
+
+Now, let's say you're on the path. You're sure it's right. But it's hard. DO NOT QUIT. Do one of the following:
+- Complain
+- Eat ice cream
+- Go for walk - in nature = better
+- Nap
+- Meditate
+- Talk to friends
+- Take a day, or longer, off
+- Binge watch your favourite TV series
+- etc.
+
+Then continue. You didn't quit. You had a break. We all do. Go again. You got this.
+
+
+The biggest difference between people that do awesome things and people that don't is that one group just does not quit.
+
+
+# URLs to supporting videos.
+# Short and, if exists, extended.
+Links:
+
+
+# Comma separated list of other related ideas.
+# Only pass in their numeric ID.
+# e.g. 069, 420
+# The generation script handles linking etc.
+# 000-999
+Related:
+
