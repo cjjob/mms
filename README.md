@@ -53,3 +53,9 @@ git push
 ```
 
 Cloudflare Pages picks up the push automatically and redeploys.
+
+## TODO
+
+1. Rendering options, behind a config file. e.g. Do I want notes to be justified. Note, this isn't a user exposed option. It's a 'build' option.
+2. UI improvements, e.g. grid vs table on main index page.
+3. Do an LLM semantic relevance embedding. Then some kind of visualisation. (Requires writing a lot more first...)
