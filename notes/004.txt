@@ -1,0 +1,40 @@
+ID:
+
+
+Title: Winners fail (most)
+
+
+Subtitle: To win you must try. To try you will fail. To win you must/will fail.
+
+
+Description
+Not only do winners fail. Winners fail more than anybody.
+
+This isn't complicated. Not matter how talented you are, or special you are, at some point you will reach a point where *you can't do something*. Maybe you fail once. Maybe twice. It takes a real winner to fail 10,000 times.
+
+Failing and progress are largely the same thing. The difference is *your perspective*.
+
+'Loser': "I failed 20 times."
+'Winner': "I'm 20 tries closer to success."
+
+'Loser': "Each of my 7 ideas were wrong."
+'Winner': "I've eliminated 7 candidate.
+
+'Loser': 'This is hopeless. I'm a failure. I'll never do this.'
+'Winner': 'I've been here before. I succeeded before. I'm sure I'll do this.'
+
+You can choose either. Who do you want to be?
+
+
+# URLs to supporting videos.
+# Short and, if exists, extended.
+Links:
+
+
+# Comma separated list of other related ideas.
+# Only pass in their numeric ID.
+# e.g. 069, 420
+# The generation script handles linking etc.
+# 000-999
+Related:
+
