@@ -1,0 +1,29 @@
+ID:
+
+
+Title: Never compare 
+
+
+
+Subtitle: "Comparison is the thief of joy" - Theodore Roosevelt (maybe)
+
+
+Description
+Comparison is instinctive. It's a bad instinct.
+
+
+Comparison makes sense sometimes. Any time you need to evaluate multiple things.
+
+
+# URLs to supporting videos.
+# Short and, if exists, extended.
+Links:
+
+
+# Comma separated list of other related ideas.
+# Only pass in their numeric ID.
+# e.g. 069, 420
+# The generation script handles linking etc.
+# 000-999
+Related:
+
