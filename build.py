@@ -17,6 +17,7 @@ Links between pages:
 
 Run: python3 build.py
 """
+
 import html
 import re
 import sys
@@ -38,7 +39,9 @@ FIELD_RE: re.Pattern[str] = re.compile(
 NOTE_FILENAME_RE: re.Pattern[str] = re.compile(r"^\d{3}\.txt$")
 NOTES_PLACEHOLDER: str = "{notes}"
 FIELD_BY_KEY: dict[str, str] = {name.lower(): name for name in FIELDS}
-LABELLED_URL_RE: re.Pattern[str] = re.compile(r"^(?P<label>[^:]+):\s*(?P<url>\w+://\S+)$")
+LABELLED_URL_RE: re.Pattern[str] = re.compile(
+    r"^(?P<label>[^:]+):\s*(?P<url>\w+://\S+)$"
+)
 LINK_LABELS: tuple[str, ...] = ("Short", "Extended")
 
 # Back-to-index link on every note page: a house drawn in currentColor.
@@ -268,7 +271,9 @@ def render_note(note: Note, notes_by_id: dict[str, Note], targets: LinkTargets) 
             else:
                 label = LINK_LABELS[i] if i < len(LINK_LABELS) else f"Link {i + 1}"
                 url = raw
-            items.append(f'<li><a href="{html.escape(url)}">{html.escape(label)}</a></li>')
+            items.append(
+                f'<li><a href="{html.escape(url)}">{html.escape(label)}</a></li>'
+            )
         items.append("</ul>")
         out.append("\n".join(items))
 
@@ -321,5 +326,7 @@ def build() -> None:
             note.title or note.nid,
             render_note(note, notes_by_id, targets),
         )
+
+
 if __name__ == "__main__":
     build()
