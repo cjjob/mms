@@ -35,6 +35,8 @@ FIELDS: tuple[str, ...] = ("ID", "Title", "Subtitle", "Description", "Links", "R
 FIELD_RE: re.Pattern[str] = re.compile(
     r"^(" + "|".join(FIELDS) + r")\s*:?\s*(.*)$", re.IGNORECASE
 )
+NOTE_FILENAME_RE: re.Pattern[str] = re.compile(r"^\d{3}\.txt$")
+NOTES_PLACEHOLDER: str = "{notes}"
 FIELD_BY_KEY: dict[str, str] = {name.lower(): name for name in FIELDS}
 LABELLED_URL_RE: re.Pattern[str] = re.compile(r"^(?P<label>[^:]+):\s*(?P<url>\w+://\S+)$")
 LINK_LABELS: tuple[str, ...] = ("Short", "Extended")
@@ -134,7 +136,24 @@ def parse_note(path: Path) -> Note:
 
 
 def load_notes() -> list[Note]:
-    return [parse_note(p) for p in sorted(SRC.glob("*.txt"))]
+    notes: list[Note] = []
+    for path in sorted(SRC.iterdir()):
+        if path.is_dir() or path == INDEX_PATH:
+            continue
+        if not NOTE_FILENAME_RE.match(path.name):
+            warn(f"ignored {path.name}: does not match NNN.txt")
+            continue
+        notes.append(parse_note(path))
+    return notes
+
+
+def notes_grid_html(notes: list[Note]) -> str:
+    items: list[str] = ['<ul class="notes-grid">']
+    for note in notes:
+        label: str = f"{note.nid} | {note.title or note.nid}"
+        items.append(f'<li><a href="{note.slug}.html">{html.escape(label)}</a></li>')
+    items.append("</ul>")
+    return "\n".join(items)
 
 
 def link_targets(notes: list[Note]) -> LinkTargets:
@@ -168,7 +187,10 @@ def inline(text: str, targets: LinkTargets) -> str:
     return text
 
 
-def render_markdown(src: str, targets: LinkTargets) -> str:
+def render_markdown(
+    src: str, targets: LinkTargets, raw_blocks: Optional[dict[str, str]] = None
+) -> str:
+    raw_blocks = raw_blocks or {}
     lines: list[str] = src.splitlines()
     out: list[str] = []
     para: list[str] = []
@@ -192,6 +214,12 @@ def render_markdown(src: str, targets: LinkTargets) -> str:
         if not stripped:
             flush_para()
             flush_list()
+            continue
+
+        if stripped in raw_blocks:
+            flush_para()
+            flush_list()
+            out.append(raw_blocks[stripped])
             continue
 
         heading: Optional[Match[str]] = re.match(r"^(#{1,6})\s+(.*)$", stripped)
@@ -277,7 +305,11 @@ def build() -> None:
     targets: LinkTargets = link_targets(notes)
 
     if INDEX_PATH.exists():
-        body: str = render_markdown(INDEX_PATH.read_text(), targets)
+        body: str = render_markdown(
+            INDEX_PATH.read_text(),
+            targets,
+            raw_blocks={NOTES_PLACEHOLDER: notes_grid_html(notes)},
+        )
         write_page(template, "index", SITE_TITLE, body)
     else:
         warn(f"no {INDEX_PATH.name}; the site has no home page")
@@ -289,7 +321,5 @@ def build() -> None:
             note.title or note.nid,
             render_note(note, notes_by_id, targets),
         )
-
-
 if __name__ == "__main__":
     build()
