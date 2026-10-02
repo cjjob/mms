@@ -21,6 +21,7 @@ Run: python3 build.py
 import html
 import re
 import sys
+import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Match, Optional
@@ -30,7 +31,21 @@ SRC: Path = ROOT / "notes"
 OUT: Path = ROOT / "wiki_html"
 TEMPLATE_PATH: Path = SRC / "templates" / "page.html"
 INDEX_PATH: Path = SRC / "index.md"
+CONFIG_PATH: Path = ROOT / "config.toml"
 SITE_TITLE: str = "Might Make Sense"
+
+# Build settings a reader can tune without touching CSS. Keys and types here
+# double as validation for config.toml: unknown keys or wrong-typed values
+# are ignored (with a warning) in favour of these defaults.
+DEFAULT_CONFIG: dict[str, object] = {
+    "justify": True,  # justify note description paragraphs
+    "font": (
+        "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "
+        '"DejaVu Sans Mono", "Liberation Mono", monospace'
+    ),
+    "grid_width": "40rem",  # max-width of the index note grid
+    "list_breakpoint": "30rem",  # viewport width below which the grid becomes a list
+}
 
 FIELDS: tuple[str, ...] = ("ID", "Title", "Subtitle", "Description", "Links", "Related")
 FIELD_RE: re.Pattern[str] = re.compile(
@@ -80,6 +95,47 @@ class Note:
 
 def warn(msg: str) -> None:
     print(f"warning: {msg}", file=sys.stderr)
+
+
+def load_config() -> dict[str, object]:
+    config: dict[str, object] = dict(DEFAULT_CONFIG)
+    if not CONFIG_PATH.exists():
+        return config
+
+    try:
+        user_config: dict[str, object] = tomllib.loads(CONFIG_PATH.read_text())
+    except tomllib.TOMLDecodeError as e:
+        warn(f"{CONFIG_PATH.name}: invalid TOML ({e}); using default build settings")
+        return config
+
+    for key, value in user_config.items():
+        if key not in DEFAULT_CONFIG:
+            warn(f"{CONFIG_PATH.name}: unknown setting '{key}' ignored")
+            continue
+        if not isinstance(value, type(DEFAULT_CONFIG[key])):
+            warn(
+                f"{CONFIG_PATH.name}: '{key}' should be a "
+                f"{type(DEFAULT_CONFIG[key]).__name__}; ignored"
+            )
+            continue
+        config[key] = value
+    return config
+
+
+def config_style(config: dict[str, object]) -> str:
+    align: str = "justify" if config["justify"] else "left"
+    return (
+        "<style>\n"
+        ":root {\n"
+        f"  --font: {config['font']};\n"
+        f"  --grid-width: {config['grid_width']};\n"
+        f"  --description-align: {align};\n"
+        "}\n"
+        f"@media (max-width: {config['list_breakpoint']}) {{\n"
+        "  .notes-grid { display: block; }\n"
+        "}\n"
+        "</style>"
+    )
 
 
 def slugify(title: str) -> str:
@@ -293,9 +349,11 @@ def render_note(note: Note, notes_by_id: dict[str, Note], targets: LinkTargets) 
     return "\n\n".join(out)
 
 
-def write_page(template: str, slug: str, title: str, body: str) -> None:
-    page: str = template.replace("{{ title }}", html.escape(title)).replace(
-        "{{ content }}", body
+def write_page(template: str, style: str, slug: str, title: str, body: str) -> None:
+    page: str = (
+        template.replace("{{ title }}", html.escape(title))
+        .replace("{{ content }}", body)
+        .replace("{{ config_style }}", style)
     )
     (OUT / f"{slug}.html").write_text(page)
     print(f"wrote {OUT.name}/{slug}.html")
@@ -304,6 +362,7 @@ def write_page(template: str, slug: str, title: str, body: str) -> None:
 def build() -> None:
     OUT.mkdir(exist_ok=True)
     template: str = TEMPLATE_PATH.read_text()
+    style: str = config_style(load_config())
 
     notes: list[Note] = load_notes()
     notes_by_id: dict[str, Note] = {n.nid.lower(): n for n in notes}
@@ -315,13 +374,14 @@ def build() -> None:
             targets,
             raw_blocks={NOTES_PLACEHOLDER: notes_grid_html(notes)},
         )
-        write_page(template, "index", SITE_TITLE, body)
+        write_page(template, style, "index", SITE_TITLE, body)
     else:
         warn(f"no {INDEX_PATH.name}; the site has no home page")
 
     for note in notes:
         write_page(
             template,
+            style,
             note.slug,
             note.title or note.nid,
             render_note(note, notes_by_id, targets),

@@ -1,0 +1,14 @@
+# Build settings for build.py. See DEFAULT_CONFIG there for fallbacks used
+# when a key is missing, and for the full set of recognized keys.
+
+# Justify note description paragraphs.
+justify = false
+
+# Body font stack.
+font = 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "DejaVu Sans Mono", "Liberation Mono", monospace'
+
+# Max-width of the index note grid.
+grid_width = "40rem"
+
+# Viewport width below which the grid becomes a single-column list.
+list_breakpoint = "30rem"

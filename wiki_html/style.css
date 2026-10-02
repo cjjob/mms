@@ -19,8 +19,7 @@ html {
 body {
   background: var(--bg);
   color: var(--fg);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
-    "DejaVu Sans Mono", "Liberation Mono", monospace;
+  font-family: var(--font);
   font-size: 16px;
   line-height: 1.75;
   margin: 0;
@@ -71,7 +70,7 @@ p {
 }
 
 .description {
-  text-align: justify;
+  text-align: var(--description-align);
   text-justify: inter-word;
   hyphens: auto;
 }
@@ -133,6 +132,9 @@ li {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
   gap: 0.5rem 1.5rem;
+  max-width: var(--grid-width);
+  margin-left: auto;
+  margin-right: auto;
   text-align: left;
 }
 
@@ -178,8 +180,7 @@ li {
   main {
     padding: 2.5rem 1.25rem;
   }
-
-  .notes-grid {
-    display: block;
-  }
 }
+
+/* The notes-grid -> list breakpoint is configurable (config.json:
+   list_breakpoint) and is emitted per-build in the page's <head>. */
