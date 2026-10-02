@@ -1,0 +1,24 @@
+ID:
+
+
+Title: big progress is small
+
+
+Subtitle:
+
+
+Description
+
+
+
+# URLs to supporting videos.
+# Short and, if exists, extended.
+Links:
+
+
+# Comma separated list of other related ideas.
+# Only pass in their numeric ID.
+# e.g. 069, 420
+# The generation script handles linking etc.
+# 000-999
+Related:
