@@ -3,7 +3,9 @@
 
 Watches notes/ (recursively) and config.toml, re-running build.build() on
 any change, and serves wiki_html/ with a small injected script that polls
-for a new build and reloads the page automatically.
+for a new build and reloads the page automatically. Changes to static
+files in wiki_html/ (currently just style.css) trigger a reload without
+a rebuild, since build.py doesn't touch them.
 
 Run: python3 watch.py [port]
 """
@@ -22,6 +24,7 @@ ROOT: Path = build_mod.ROOT
 SRC: Path = build_mod.SRC
 OUT: Path = build_mod.OUT
 CONFIG_PATH: Path = build_mod.CONFIG_PATH
+STATIC_PATHS: tuple[Path, ...] = (OUT / "style.css",)
 POLL_INTERVAL: float = 0.3
 
 RELOAD_SCRIPT: bytes = b"""
@@ -65,17 +68,28 @@ def source_signature() -> frozenset[tuple[str, float]]:
     )
 
 
+def static_signature() -> frozenset[tuple[str, float]]:
+    return frozenset(
+        (str(p), p.stat().st_mtime) for p in STATIC_PATHS if p.is_file()
+    )
+
+
 def watch_loop() -> None:
-    last = None
+    last_source = None
+    last_static = None
     while True:
-        sig = source_signature()
-        if sig != last:
-            last = sig
+        source_sig = source_signature()
+        static_sig = static_signature()
+        if source_sig != last_source:
+            last_source = source_sig
             try:
                 build_mod.build()
             except Exception as e:  # keep the watcher alive on a bad edit
                 print(f"build error: {e}", file=sys.stderr)
             bump_version()
+        elif static_sig != last_static:
+            bump_version()
+        last_static = static_sig
         time.sleep(POLL_INTERVAL)
 
 
