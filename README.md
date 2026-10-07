@@ -20,14 +20,16 @@ Link between pages with `[[001]]` (matches a note's ID, or its title case-insens
 Regenerate the site:
 
 ```sh
-python3 build.py
+just build
 ```
 
-Open it locally:
+Or watch `notes/` and `config.toml` and rebuild on every save, serving `wiki_html/` with live reload in the browser:
 
 ```sh
-open wiki_html/index.html
+just build-live
 ```
+
+Both are plain `python3` under the hood (`build.py` and `watch.py`); `just --list` shows all available commands.
 
 Styling lives in `wiki_html/style.css` (black background, white monospace type, one centred column, justified note text) and the page shell lives in `notes/templates/page.html`, which wraps the rendered content in a `<main>`. Both are hand-edited and untouched by `build.py`.
 
@@ -46,7 +48,7 @@ The site is hosted on **Cloudflare Pages** and served at `mightmakesense.xyz`, w
 
 ```sh
 # after editing notes in notes/
-python3 build.py
+just build
 git add notes wiki_html
 git commit -m "..."
 git push
