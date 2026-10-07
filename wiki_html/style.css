@@ -140,6 +140,7 @@ li {
 
 .notes-grid a {
   display: block;
+  text-decoration: none;
 }
 
 /* Note furniture -------------------------------------------------------- */
