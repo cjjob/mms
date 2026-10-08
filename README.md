@@ -33,6 +33,14 @@ Both are plain `python3` under the hood (`build.py` and `watch.py`); `just --lis
 
 Styling lives in `wiki_html/style.css` (black background, white monospace type, one centred column, justified note text) and the page shell lives in `notes/templates/page.html`, which wraps the rendered content in a `<main>`. Both are hand-edited and untouched by `build.py`.
 
+Setup (needs Python 3.11+, since `build.py` uses `tomllib`):
+
+```sh
+just setup
+```
+
+This creates a `.venv/`, installs `requirements.txt` into it, and copies `.env.example` to `.env` if there isn't one yet. Then fill in `GOOGLE_API_KEY` in `.env` (git-ignored). It's safe to re-run, e.g. after `requirements.txt` changes. `just animate` uses `.venv/bin/python` directly, so there's no need to activate the venv; if it ever gets into a bad state, delete `.venv/` and run `just setup` again.
+
 ## Deployment
 
 The site is hosted on **Cloudflare Pages** and served at `mightmakesense.xyz`, with DNS managed by Cloudflare (domain registered at Porkbun).
