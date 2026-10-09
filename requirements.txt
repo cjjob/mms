@@ -1,1 +1,11 @@
-google-genai>=2.3.0
+# One file for everything, including stable-ts for `just align` (word timings
+# for captions). stable-ts pulls in PyTorch (~1GB), so `just setup` is heavier
+# than it strictly needs to be; we chose that over juggling two files.
+#
+# To make it optional again: move stable-ts into requirements-align.txt, add
+# `@.venv/bin/pip install -q -r requirements-align.txt` as the first line of the
+# `align` recipe in the justfile, and point the install hints in
+# animate/align.py and README.md at requirements-align.txt.
+
+google-genai>=2.25.0
+stable-ts
