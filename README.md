@@ -35,12 +35,12 @@ Styling lives in `wiki_html/style.css` (black background, white monospace type, 
 
 ## Animation
 
-`animate/` turns one note into a short vertical video (1080x1920, for TikTok/Reels): black-and-white stick-figure images, one per line of the note's `Description`, with a voiceover and TikTok-style captions, stitched into an MP4. Fully automatic, no manual editing. It uses Google's Gemini API with the cheapest models, plus ffmpeg:
+`animate/` turns one note into a short vertical video (1080x1920, for TikTok/Reels): black-and-white stick-figure images (the storyboard decides how many and where each cut falls), with a voiceover and TikTok-style captions, stitched into an MP4. Fully automatic, no manual editing. It uses Google's Gemini API with the cheapest models, plus ffmpeg:
 
-| Step | Script | Model | Cost (15-line note) |
+| Step | Script | Model | Cost (note 001, ~2 min) |
 |---|---|---|---|
 | Storyboard | `animate.py --storyboard-only` | `gemini-3.1-flash-lite` | ~free |
-| Frames | `animate.py` | `gemini-3.1-flash-lite-image` | ~$0.034/image, ~$0.50 |
+| Frames | `animate.py` | `gemini-3.1-flash-lite-image` (or local, see below) | ~$0.034/image; ~30-40 frames, ~$1-1.35 |
 | Voiceover | `voice.py` | `gemini-3.8-flash-lite-tts` | ~1p |
 | Word timings | `align.py` | Whisper `base.en` via stable-ts, local | free |
 | Stitch | `stitch.py` | ffmpeg, local | free |
@@ -77,38 +77,49 @@ just frame 001 6 "show him at the top of a mountain" --redraw  # draw it fresh i
 
 `just edit` has a cheap text model turn the request into specific per-frame changes, prints them, and asks before applying (`--yes` to skip). Only the named frames change. Later frames, the voice and the word timings are never touched, and the MP4 is rebuilt at the end:
 
-- **zoom / pause**: saved as per-frame overrides in `storyboard.json` (`"overrides": {"9": {"zoom": 0.025}}`). Free. Negative zoom zooms out.
+- **zoom**: saved as a per-frame override in `storyboard.json` (`"overrides": {"9": {"zoom": 0.025}}`). Free. Negative zoom zooms out.
 - **image edit** (default): the current frame plus "change only X", with the style reference and neighbouring frames for context. Keeps the composition. ~$0.034.
 - **redraw**: for a substantially different scene. Updates the storyboard scene and draws the frame fresh, using the frames before *and* after it as references. ~$0.034.
 
 Replaced frames go to `<id>/history/frame-NN.vN.*`; to undo, copy one back over `frame-NN.*` and run `just stitch`.
 
-The storyboard step is the cheap one to iterate on: check that every line has a sensible, drawable scene before paying for images. `just animate` reuses the saved storyboard, and creates one first if there isn't one yet. Every step skips work that's already done, so re-running is cheap.
+The storyboard step is the cheap one to iterate on: check the cut points and that every frame has a sensible, drawable scene before paying for images. `just animate` reuses the saved storyboard, and creates one first if there isn't one yet. Every step skips work that's already done, so re-running is cheap.
+
+Running the image model locally:
+
+```sh
+just setup-local                     # once: mflux + FLUX.2 klein 4B saved at 4-bit (~15GB download)
+IMAGE_BACKEND=local just video 001   # or put IMAGE_BACKEND=local in .env
+```
+
+With `IMAGE_BACKEND=local`, frames and edits are drawn on this Mac by **FLUX.2 klein 4B via mflux** (Apache 2.0, 4-bit, 576x1024, 4 steps, fits a 16GB Mac) instead of Gemini. Small local models do better with short prompts, so the local path sends a compact prompt (`LOCAL_STYLE` in `animate.py`) with fewer reference images: the style reference plus the previous frame, or for edits the current frame plus the reference. To set the character's look, replace `animate/animate_reference.png` with a drawing of your own. Expect roughly 20-60s per image on an M-series Air; the first run of each command spends extra time loading the model. If `mflux-save` runs out of memory during setup, skip it: the script falls back to quantizing on load (slower start, same result). The saved model lives in `animate/models/` (git-ignored).
+
+Why text always uses Gemini: the storyboard and `just edit` planning are single text calls costing well under a penny each (~2k tokens in, a few thousand out on `gemini-3.1-flash-lite`). They're also where model quality matters most, since they decide every cut and scene. A local text model (e.g. qwen3:8b via Ollama, which was considered and dropped) would save less than a penny per video, do the job noticeably worse, and add a ~5GB download plus a running server. Images are where the cost is (~$0.034 each, $1+ per video), so that's the only step with a local option. The voiceover also stays on Gemini TTS (~1p per video).
 
 How it keeps frames coherent:
 
-1. **Storyboard** — one text-model call reads the whole script and returns a cast description plus one concrete, drawable scene per line. Saved as `storyboard.json` and reused on later runs; `just storyboard <id> --replan` makes a fresh one.
-2. **Frames** — each image request gets the style reference `animate/animate_reference.png`, the previous 2 frames, the full script with the current line marked, the lines before and after, and that line's scene.
+1. **Storyboard** — one text-model call reads the whole script, with every word numbered, and decides how many frames there are and where each one starts. A cut can land on any word, mid-sentence included (e.g. exactly as a key word is spoken); frames are usually 2-6 seconds, but the model can go shorter or longer when it suits (`MAX_FRAMES = 80` is only a safety limit). Each frame gets a concrete, drawable scene. Saved as `storyboard.json` (`{"start": word number, "text": the words it covers, "scene": ...}`) and reused on later runs; `just storyboard <id> --replan` makes a fresh one and moves the old plan's frames to `history/before-replan-N/`, since they no longer match. Storyboards from before this change (one frame per line) still load as-is.
+2. **Frames** — each image request gets the style reference `animate/animate_reference.png`, the previous 2 frames, the full script with this frame's words marked, the previous and next frames' words, and this frame's scene.
 
-Stitching: each frame is shown for the length of its voice clip plus a 0.4s pause (3s of silence if there's no clip yet, so you can preview timing before generating audio), with a slow 5% zoom-in ("Ken Burns"), then the segments are joined into one MP4.
+Stitching: the narration is one continuous track, each line's voice clip followed by a 0.4s pause (3s of silence for a line with no clip yet, so you can preview timing before generating audio). Each frame appears as its first word is spoken (from the word timings; estimated if `just align` hasn't run) and stays until the next one, with a slow 5% zoom-in ("Ken Burns"); then video, narration and captions are combined into one MP4.
 
 Captions: a few words at a time (max 5 words / 24 characters, breaking after punctuation), white Arial Black with a black outline, the spoken word highlighted yellow with a small pop. They sit about a quarter of the way up the frame, clear of TikTok's buttons. They're written as an ASS subtitle file (`<id>.ass`) and burned in with ffmpeg/libass. Word timings come from `just align`: since we already know the exact words, Whisper *aligns* them to the audio rather than transcribing (so it can't mishear). Without alignment, `stitch` estimates timings from each clip's length, which is close but drifts on long lines. stable-ts is in `requirements.txt` (it pulls in PyTorch, ~1GB, so `just setup` takes a while), and `just align` downloads a ~150MB model once. Font, colours, size, position and chunking are constants at the top of `stitch.py`; to use a custom font, drop the `.ttf` into `animate/fonts/` and set `FONT` to its name.
 
 Output goes to `animate/out/` (git-ignored):
 
-- `<id>/storyboard.json` — the shot plan, plus any per-frame zoom/pause overrides
+- `<id>/storyboard.json` — the shot plan, plus any per-frame zoom overrides
 - `<id>/history/` — earlier versions of frames replaced by `just edit` / `just frame`
-- `<id>/frame-NN.jpg` (or `.png`) + `frame-NN.txt` — each image and the exact prompt used for it
-- `<id>/voice-NN.wav` — the voiceover for line NN
+- `<id>/frame-NN.jpg` (or `.png`; always `.png` locally) + `frame-NN.txt` — each image and the exact prompt used for it
+- `<id>/voice-NN.wav` + `voice.json` — the voiceover for line NN, and the text/voice/style each clip was made from
 - `<id>/words-NN.json` — word timings for line NN (`[word, start, end]`)
 - `<id>.ass` — the captions that were burned in
 - `<id>.mp4` — the finished video
 
-To redo something, delete those files and re-run: e.g. delete `frame-05.*` and later to regenerate frames from 5 onwards (each frame builds on the previous ones), or `voice-03.wav` and `words-03.json` to re-record line 3. `just stitch` always rebuilds the MP4.
+Voice clips are matched to the note's text: edit a line (or `VOICE`/`STYLE` in `voice.py`) and `just voice` re-records just what changed, `just align` redoes the timings for any newer clip, and `just stitch` refuses to build with a clip that doesn't match the note. To redo a frame, use `just edit` / `just frame`, or delete `frame-NN.*` and re-run `just animate`. `just stitch` always rebuilds the MP4.
 
 Composition: the image prompt asks for the subject in the middle half of the frame, with the lower third left as white space for captions and the top eighth clear for app UI.
 
-Tips: one line in the note = one image and one voice clip, so split long lines for better pacing. Models, voice, delivery style, the number of previous frames fed back in, timing and zoom are constants at the top of each script.
+Tips: lines in the note only matter for the voice (one clip per line); the storyboard decides the images. Models, voice, delivery style, the number of previous frames fed back in, timing and zoom are constants at the top of each script.
 
 ## Deployment
 

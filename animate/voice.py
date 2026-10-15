@@ -4,19 +4,22 @@
 Usage:
   python3 animate/voice.py 001
 
-Output: animate/out/<id>/voice-NN.wav, matching frame-NN. Existing clips are
-skipped; delete one to regenerate it. Change VOICE/STYLE below to taste.
+Output: animate/out/<id>/voice-NN.wav, one per line of the note, plus voice.json
+recording the exact text (and voice/style) each clip was made from. A clip is
+reused only if that still matches; edit a line in the note and just that line is
+re-recorded. Change VOICE/STYLE below to taste (that re-records everything).
 """
 
 import argparse
 import base64
+import json
 import sys
 
 from animate import OUT, get_client, read_note, run_cli
 
 TTS_MODEL = "gemini-3.8-flash-lite-tts"  # cheapest TTS; a 45s video costs ~1p
 VOICE = "Sulafat"  # "warm"; full list in Google's speech-generation docs
-STYLE = "calm, warm and sincere; unhurried, like an encouraging friend"
+STYLE = "Casual tone, with a positive energy. Generally quite quick but slowing for emphasis where necessary."
 
 
 def main() -> None:
@@ -29,12 +32,16 @@ def main() -> None:
     outdir.mkdir(parents=True, exist_ok=True)
     print(f"{args.note}: {title!r}, {len(lines)} lines, voice {VOICE}")
 
+    manifest_path = outdir / "voice.json"
+    manifest = json.loads(manifest_path.read_text()) if manifest_path.exists() else {}
     for i, line in enumerate(lines, 1):
         path = outdir / f"voice-{i:02d}.wav"
-        if path.exists():
-            print(f"{path.name}: exists, skipping")
+        made_from = {"text": line, "voice": VOICE, "style": STYLE, "model": TTS_MODEL}
+        if path.exists() and manifest.get(f"{i:02d}") == made_from:
+            print(f"{path.name}: up to date, skipping")
             continue
-        print(f"{path.name}: {line[:60]}")
+        why = "changed" if path.exists() else "new"
+        print(f"{path.name} ({why}): {line[:60]}")
         r = get_client().interactions.create(
             model=TTS_MODEL,
             input=[{
@@ -51,6 +58,8 @@ def main() -> None:
         if r.output_audio is None:
             sys.exit(f"{path.name}: no audio returned. Model said: {r.output_text!r}")
         path.write_bytes(base64.b64decode(r.output_audio.data))
+        manifest[f"{i:02d}"] = made_from
+        manifest_path.write_text(json.dumps(manifest, indent=2))  # after each clip, so a crash loses nothing
 
     print(f"done: {outdir}")
 

@@ -10,7 +10,7 @@ Usage:
 1. Plan: a cheap text model turns the request into specific changes per frame
    (unless --frame is given). The plan is printed and you confirm it.
 2. Apply, touching only those frames:
-   - zoom / pause  -> stored as per-frame overrides in storyboard.json (no image cost)
+   - zoom          -> stored as a per-frame override in storyboard.json (no image cost)
    - image "edit"  -> the current frame + the instruction ("change only X"), with the
                       style reference and neighbouring frames for context
    - image "redraw"-> the storyboard scene is updated and the frame is drawn fresh,
@@ -22,23 +22,24 @@ Usage:
 
 import argparse
 import json
-import shutil
 import sys
 
 from animate import (
-    IMAGE_COST, OUT, PLAN_MODEL, PREV_FRAMES, REFERENCE, STYLE,
-    find_frame, frame_prompt, generate_image, get_client, load_board, read_note, run_cli, save_board,
+    OUT, PREV_FRAMES, REFERENCE, STYLE, ask_text, backend,
+    find_frame, frame_prompt, frame_text, generate_image, image_cost, load_board, local_edit_prompt,
+    local_frame_prompt, read_note, run_cli, save_board,
 )
-from stitch import PAUSE, ZOOM, settings, stitch
+from stitch import ZOOM, settings, stitch
 
 
 def plan_changes(request: str, lines: list[str], board: dict) -> list[dict]:
     rows = []
-    for i, (line, scene) in enumerate(zip(lines, board["scenes"]), 1):
-        zoom, pause = settings(board, i)
-        rows.append(f'{i:02d}. line: "{line}"\n    scene: {scene}\n    zoom: {zoom:g}, pause: {pause:g}')
+    for i, f in enumerate(board["frames"], 1):
+        rows.append(f'{i:02d}. words: "{frame_text(board, lines, i)}"\n    scene: {f["scene"]}\n'
+                    f'    zoom: {settings(board, i):g}')
     prompt = f"""You turn a request for changes to a short narrated stick-figure video into a precise
-JSON edit plan. The video has {len(lines)} frames, one per narration line. Current state:
+JSON edit plan. The video has {len(board["frames"])} frames, each shown while its words are
+spoken. Current state:
 
 {chr(10).join(rows)}
 
@@ -46,7 +47,6 @@ Settings you can change per frame:
 - zoom: how far the frame slowly zooms in over its duration. Default {ZOOM:g} (= {ZOOM:.0%}).
   0 = still; negative = zoom out. "reduce the zoom" = roughly halve it; "remove" = 0;
   "more zoom" = roughly double it.
-- pause: seconds of silence after the line is spoken. Default {PAUSE:g}.
 
 Image changes:
 - "edit": a targeted change to the existing image (change, add, remove or restyle an
@@ -61,11 +61,11 @@ Return ONLY JSON:
 {{"changes": [{{"frame": 6, "image": "edit" or "redraw" or null,
   "instruction": "precise instruction for the image model, or null",
   "scene": "new scene description (redraw only), or null",
-  "zoom": number or null, "pause": number or null}}]}}
+  "zoom": number or null}}]}}
 Only include frames the request is about; use null for anything not changing. Frame
-numbers refer to the numbering above. Never change the narration."""
-    r = get_client().interactions.create(model=PLAN_MODEL, input=prompt)
-    text = r.output_text or ""
+numbers refer to the numbering above; if the request names words rather than a frame
+number, use the frame whose words contain them. Never change the narration."""
+    text = ask_text(prompt)
     try:
         return json.loads(text[text.index("{") : text.rindex("}") + 1])["changes"]
     except (ValueError, KeyError, TypeError):
@@ -85,12 +85,11 @@ def validate(changes: list[dict], n: int) -> list[dict]:
         image = c.get("image") if c.get("image") in ("edit", "redraw") else None
         if image and not (c.get("instruction") or c.get("scene")):
             image = None
-        zoom, pause = c.get("zoom"), c.get("pause")
+        zoom = c.get("zoom")
         zoom = max(-0.3, min(0.3, float(zoom))) if isinstance(zoom, (int, float)) else None
-        pause = max(0.0, min(5.0, float(pause))) if isinstance(pause, (int, float)) else None
-        if image or zoom is not None or pause is not None:
+        if image or zoom is not None:
             out.append({"frame": i, "image": image, "instruction": c.get("instruction"),
-                        "scene": c.get("scene") if image == "redraw" else None, "zoom": zoom, "pause": pause})
+                        "scene": c.get("scene") if image == "redraw" else None, "zoom": zoom})
     return out
 
 
@@ -98,7 +97,7 @@ def describe(changes: list[dict], board: dict) -> str:
     rows = []
     for c in changes:
         i = c["frame"]
-        zoom, pause = settings(board, i)
+        zoom = settings(board, i)
         if c["image"] == "edit":
             rows.append(f"frame {i:02d}  image edit: {c['instruction']}")
         if c["image"] == "redraw":
@@ -107,8 +106,6 @@ def describe(changes: list[dict], board: dict) -> str:
                 rows.append(f"           also: {c['instruction']}")
         if c["zoom"] is not None:
             rows.append(f"frame {i:02d}  zoom {zoom:g} -> {c['zoom']:g}")
-        if c["pause"] is not None:
-            rows.append(f"frame {i:02d}  pause {pause:g}s -> {c['pause']:g}s")
     return "\n".join(rows)
 
 
@@ -131,7 +128,7 @@ def edit_prompt(i: int, lines: list[str], board: dict, instruction: str, n_prev:
     refs = "Image 2 is the style and main-character reference."
     if n_prev or n_next:
         refs += f" Images 3-{2 + n_prev + n_next} are the neighbouring frames, in story order, for continuity."
-    return f"""You are editing frame {i} of {len(lines)} of a short narrated stick-figure video.
+    return f"""You are editing frame {i} of {len(board["frames"])} of a short narrated stick-figure video.
 
 IMAGE 1 is the current frame. Apply ONLY this change:
 {instruction}
@@ -143,8 +140,8 @@ STYLE (the result must still match it): {STYLE}
 
 OTHER IMAGES (reference only, do not copy them): {refs}
 
-This frame's narration: "{lines[i - 1]}"
-Scene: {board['scenes'][i - 1]}"""
+This frame's narration: "{frame_text(board, lines, i)}"
+Scene: {board['frames'][i - 1]['scene']}"""
 
 
 def apply(changes: list[dict], note: str, lines: list[str], board: dict) -> None:
@@ -155,8 +152,6 @@ def apply(changes: list[dict], note: str, lines: list[str], board: dict) -> None
         ov = overrides.setdefault(str(i), {})
         if c["zoom"] is not None:
             ov["zoom"] = c["zoom"]
-        if c["pause"] is not None:
-            ov["pause"] = c["pause"]
         if not ov:
             del overrides[str(i)]
     save_board(outdir, board)  # settings saved even if an image call fails below
@@ -172,21 +167,26 @@ def apply(changes: list[dict], note: str, lines: list[str], board: dict) -> None
         if c["image"] == "edit" and current:
             prompt = edit_prompt(i, lines, board, c["instruction"], len(prev), len(nxt))
             refs = [current, REFERENCE, *prev, *nxt]
+            local_prompt, local_refs = local_edit_prompt(c["instruction"]), [current, REFERENCE]
         else:  # redraw (or edit with no current image)
             if c["scene"]:
-                board["scenes"][i - 1] = c["scene"]
+                board["frames"][i - 1]["scene"] = c["scene"]
                 save_board(outdir, board)
             prompt = frame_prompt(i, lines, board, len(prev), len(nxt))
             if c["instruction"]:
                 prompt += f"\n\nSPECIFIC REQUEST FOR THIS FRAME: {c['instruction']}"
             refs = [REFERENCE, *prev, *nxt]
+            local_refs = [REFERENCE, *prev[-1:]]
+            local_prompt = local_frame_prompt(i, board, len(local_refs))
+            if c["instruction"]:
+                local_prompt += f" {c['instruction']}"
 
         print(f"{stem}: {c['image']}...")
         # Generate to a temporary name first, so a failed call leaves the old frame in place.
-        new = generate_image(prompt, refs, outdir, f"{stem}.new")
+        new = generate_image(prompt, refs, outdir, f"{stem}.new", local_prompt, local_refs)
         backup(outdir, i)
         new.rename(outdir / f"{stem}{new.suffix}")
-        (outdir / f"{stem}.txt").write_text(prompt)
+        (outdir / f"{stem}.txt").write_text(local_prompt if backend() == "local" else prompt)
 
 
 def main() -> None:
@@ -200,7 +200,7 @@ def main() -> None:
 
     _, lines = read_note(args.note)
     outdir = OUT / args.note
-    board = load_board(outdir)
+    board = load_board(outdir, lines)
     if board is None or not find_frame(outdir, 1):
         sys.exit(f"nothing to edit yet; run `just video {args.note}` first")
 
@@ -210,13 +210,13 @@ def main() -> None:
     else:
         print("planning...")
         raw = plan_changes(args.request, lines, board)
-    changes = validate(raw, len(lines))
+    changes = validate(raw, len(board["frames"]))
     if not changes:
         sys.exit("no changes to make")
 
     n_images = sum(1 for c in changes if c["image"])
     print(f"\n{describe(changes, board)}\n")
-    cost = f" (~${n_images * IMAGE_COST:.2f})" if n_images else ""
+    cost = f" (~${n_images * image_cost():.2f})" if n_images and image_cost() else ""
     if not args.yes and input(f"apply{cost}? [y/N] ").strip().lower() not in ("y", "yes"):
         sys.exit("cancelled")
 

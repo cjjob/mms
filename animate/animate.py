@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Turn one note into a sequence of stick-figure frames, one per Description line.
+"""Turn one note into a sequence of stick-figure frames, as planned by the storyboard.
 
 Usage:
   python3 animate/animate.py 001             # generate frames for notes/001.txt
@@ -8,20 +8,26 @@ Usage:
                                              # plan scenes and print them, no images
 
 Steps:
-  1. Storyboard: a cheap text model reads the whole script once and writes a
-     cast description plus one concrete, drawable scene per line.
-  2. Frames: for each line, the image model gets the style reference, the
-     previous frame(s), the whole script with the current line marked, and
-     that line's scene.
+  1. Storyboard: a cheap text model reads the whole script (every word numbered)
+     and decides how many frames there are and where each starts: on any word,
+     usually 2-6 seconds apart. Each frame gets one concrete, drawable scene.
+  2. Frames: for each frame, the image model gets the style reference, the
+     previous frame(s), the whole script with this frame's words marked, and
+     its scene.
 
 Output goes to animate/out/<id>/:
-  storyboard.json   the shot plan (reused on later runs; --replan to redo it)
-  frame-NN.png      one image per line
+  storyboard.json   the shot plan: cast + frames [{start word, text, scene}]
+                    (reused on later runs; --replan to redo it)
+  frame-NN.png      one image per storyboard frame
   frame-NN.txt      the exact prompt used for that frame
 Existing frames are skipped. To change individual frames afterwards, use edit.py
 (`just edit` / `just frame`).
 
 Needs: pip install -r requirements.txt, and GOOGLE_API_KEY in .env.
+
+Images: set IMAGE_BACKEND=local (in .env or the shell) to draw frames on this
+Mac with FLUX.2 klein 4B via mflux instead of Gemini. One-time setup:
+`just setup-local`. Text (storyboard, edit planning) always uses Gemini.
 """
 
 import argparse
@@ -37,7 +43,7 @@ ROOT = HERE.parent
 sys.path.insert(0, str(ROOT))
 from build import FIELD_BY_KEY, FIELD_RE, SRC  # reuse the note format  # noqa: E402
 
-PLAN_MODEL = "gemini-3.1-flash-lite"         # text, used once per note
+PLAN_MODEL = "gemini-3.1-flash-lite"         # text: storyboard and edit planning
 IMAGE_MODEL = "gemini-3.1-flash-lite-image"  # cheapest image model, ~$0.034 per image
 IMAGE_COST = 0.0336
 REFERENCE = HERE / "animate_reference.png"
@@ -56,6 +62,76 @@ STYLE = (
     "unimportant ground/floor lines, because captions are overlaid there. Keep the top "
     "eighth empty too (app UI). Nothing important near the edges."
 )
+
+
+# ---- local image backend (IMAGE_BACKEND=local) ----
+LOCAL_IMAGE_MODEL = HERE / "models" / "flux2-klein-4b-q4"  # made by `just setup-local`
+LOCAL_W, LOCAL_H = 576, 1024  # 9:16, multiples of 16; upscaled to 1080x1920 by stitch
+LOCAL_STEPS = 4               # klein is distilled for 4 steps
+# Small local models follow short, concrete prompts best. This describes the look;
+# swap animate_reference.png for a drawing of your own character to set it.
+LOCAL_STYLE = (
+    "Crude, deliberately simple MS Paint-style drawing: a stick figure with a large round "
+    "head, dot eyes, a simple line mouth, thin wobbly black lines. Flat pure white "
+    "background, black lines only, no shading, no colour, no text. Vertical frame, the "
+    "character and action centred in the middle of the frame, the bottom third left empty."
+)
+
+
+def backend() -> str:
+    load_env()
+    b = os.environ.get("IMAGE_BACKEND", "google").strip().lower()
+    if b not in ("google", "local"):
+        sys.exit(f"IMAGE_BACKEND must be 'google' or 'local', not {b!r}")
+    return b
+
+
+def image_cost() -> float:
+    return 0.0 if backend() == "local" else IMAGE_COST
+
+
+def ask_text(prompt: str) -> str:
+    """One text-model call (storyboard, edit planning). Always Gemini: see the README."""
+    return get_client().interactions.create(model=PLAN_MODEL, input=prompt).output_text or ""
+
+
+def local_frame_prompt(i: int, board: dict, n_refs: int) -> str:
+    cont = " Continue the story from image 2: same characters, same proportions." if n_refs > 1 else ""
+    return (f"{LOCAL_STYLE} The main character looks exactly like the one in image 1.{cont} "
+            f"Characters: {board['cast']} Scene: {board['frames'][i - 1]['scene']}")
+
+
+def local_edit_prompt(instruction: str) -> str:
+    return f"Edit image 1: {instruction}. Keep everything else exactly the same. {LOCAL_STYLE}"
+
+
+_local_model = None
+
+
+def local_image(prompt: str, refs: list[Path], path: Path) -> None:
+    global _local_model
+    try:
+        from mflux.models.common.config import ModelConfig
+        from mflux.models.flux2.variants import Flux2KleinEdit
+    except ImportError:
+        sys.exit("mflux not installed: just setup-local")
+    if _local_model is None:
+        print("loading FLUX.2 klein 4B...")
+        if LOCAL_IMAGE_MODEL.exists():
+            kw = {"model_path": str(LOCAL_IMAGE_MODEL)}
+        else:  # not saved yet: download (~15GB, once) and quantize on every load
+            print(f"  ({LOCAL_IMAGE_MODEL} not found, quantizing on load; `just setup-local` makes this faster)")
+            kw = {"quantize": 4}
+        _local_model = Flux2KleinEdit(model_config=ModelConfig.flux2_klein_4b(), **kw)
+    img = _local_model.generate_image(
+        seed=int.from_bytes(os.urandom(4), "big"),
+        prompt=prompt,
+        image_paths=[str(r) for r in refs],
+        num_inference_steps=LOCAL_STEPS,
+        width=LOCAL_W,
+        height=LOCAL_H,
+    )
+    img.save(str(path), overwrite=True)
 
 
 def load_env() -> None:
@@ -100,53 +176,139 @@ def read_note(nid: str) -> tuple[str, list[str]]:
     return title, lines
 
 
-def numbered(lines: list[str], mark: int | None = None) -> str:
-    out = []
-    for i, line in enumerate(lines, 1):
-        out.append(f">>> {i}. {line} <<<  (THIS FRAME)" if i == mark else f"{i}. {line}")
-    return "\n".join(out)
+WORDS_PER_SECOND = 2.5  # rough narration speed, for pacing guidance and estimates
+MAX_FRAMES = 80         # safety limit, not a target
 
 
-def make_storyboard(client, title: str, lines: list[str]) -> dict:
+def script_words(lines: list[str]) -> list[str]:
+    """The whole narration as one word list. Frames point into it by index."""
+    return [w for line in lines for w in line.split()]
+
+
+def line_starts(lines: list[str]) -> list[int]:
+    """Index (into script_words) of each line's first word."""
+    out, k = [], 0
+    for line in lines:
+        out.append(k)
+        k += len(line.split())
+    return out
+
+
+def numbered(lines: list[str]) -> str:
+    """Narration with every word numbered, one note line per row."""
+    rows, k = [], 0
+    for line in lines:
+        ws = line.split()
+        rows.append(" ".join(f"[{k + j}]{w}" for j, w in enumerate(ws)))
+        k += len(ws)
+    return "\n".join(rows)
+
+
+def spans(board: dict, lines: list[str]) -> list[tuple[int, int]]:
+    """(start, end) word indices for each frame; a frame runs until the next one starts."""
+    starts = [f["start"] for f in board["frames"]]
+    return list(zip(starts, starts[1:] + [len(script_words(lines))]))
+
+
+def frame_text(board: dict, lines: list[str], i: int) -> str:
+    s, e = spans(board, lines)[i - 1]
+    return " ".join(script_words(lines)[s:e])
+
+
+def clean_frames(raw: list, words: list[str]) -> list[dict]:
+    """Validate the model's frames: valid, strictly increasing start indices, first at 0.
+    Off-by-a-few indices are repaired using the quoted text."""
+    norm = lambda w: re.sub(r"\W", "", w.lower())
+    n, out, last = len(words), [], -1
+    for f in raw if isinstance(raw, list) else []:
+        if not isinstance(f, dict) or not str(f.get("scene") or "").strip():
+            continue
+        try:
+            s = int(f.get("start"))
+        except (TypeError, ValueError):
+            continue
+        quote = [norm(w) for w in str(f.get("text") or "").split()[:3]]
+        if quote and [norm(w) for w in words[s:s + len(quote)]] != quote:
+            for c in sorted(range(max(0, s - 15), min(n, s + 16)), key=lambda c: abs(c - s)):
+                if [norm(w) for w in words[c:c + len(quote)]] == quote:
+                    s = c
+                    break
+        if not out:
+            s = 0
+        if s <= last or s >= n:
+            continue
+        out.append({"start": s, "scene": str(f["scene"]).strip()})
+        last = s
+    return out[:MAX_FRAMES]
+
+
+def with_text(board: dict, lines: list[str]) -> dict:
+    """Refresh each frame's "text" (the words it covers), for readability in storyboard.json."""
+    for i, f in enumerate(board["frames"], 1):
+        f["text"] = frame_text(board, lines, i)
+    return board
+
+
+def make_storyboard(title: str, lines: list[str]) -> dict:
+    words = script_words(lines)
     prompt = f"""You are storyboarding a short narrated video drawn as simple black-and-white
-stick-figure cartoons. Each numbered narration line below gets exactly one frame.
+stick-figure cartoons. The narration is below with every word numbered. You decide how many
+frames the video has and exactly where each one starts.
+
+Pacing: a frame usually stays on screen for 2-6 seconds. Speech runs at about
+{WORDS_PER_SECOND:g} words per second, so that's roughly 5-15 words per frame. Break this when it
+genuinely helps: a single punchy word can get its own quick frame, and a calm, reflective
+passage can hold one image for longer.
+
+Cut points: a new frame can start on ANY word, including mid-sentence. Start it where the
+picture should change, e.g. exactly as a key word is spoken so the image lands with it, not
+mechanically at punctuation or line breaks.
 
 Return ONLY JSON, no commentary, in this shape:
-{{"cast": "...", "frames": [{{"n": 1, "scene": "..."}}, ...]}}
+{{"cast": "...", "frames": [{{"start": 0, "text": "the words this frame covers", "scene": "..."}}, ...]}}
 
 Rules:
+- "start": the number of the word where the frame begins. The first frame starts at 0 and
+  starts strictly increase. A frame lasts until the next frame starts; the last one runs to
+  the end ({len(words) - 1}).
+- "text": the exact words the frame covers, from its start word up to the next frame's start.
 - "cast": the recurring characters (at most 3), described precisely enough to draw them
   identically every time. The main character is the plain stick figure from the
   reference image; tell other characters apart by a single simple feature (e.g. a cap,
   a ponytail, taller), never by colour.
-- "frames": exactly {len(lines)} items, in order, one per line.
 - "scene": one or two sentences describing a concrete, drawable moment: who, doing
-  what, with which simple props or setting. Turn abstract lines into a clear visual
+  what, with which simple props or setting. Turn abstract words into a clear visual
   metaphor. Consecutive frames should flow like one continuous story with the same
   characters, not unrelated pictures.
 - No text, words or speech bubbles in any scene.
+- At most {MAX_FRAMES} frames.
 
 Title: {title}
 
-Narration:
+Narration ({len(words)} words, about {len(words) / WORDS_PER_SECOND:.0f} seconds):
 {numbered(lines)}"""
-    r = client.interactions.create(model=PLAN_MODEL, input=prompt)
-    text = r.output_text or ""
+    text = ask_text(prompt)
     try:
         board = json.loads(text[text.index("{") : text.rindex("}") + 1])
-        scenes = [f["scene"] for f in board["frames"]]
-        assert len(scenes) == len(lines)
-    except (ValueError, KeyError, TypeError, AssertionError):
-        print("warning: storyboard unusable, falling back to raw lines", file=sys.stderr)
-        board = {"cast": "The stick figure from the reference image.", "frames": []}
-        scenes = list(lines)
-    return {"cast": board.get("cast", ""), "scenes": scenes}
+        frames = clean_frames(board.get("frames"), words)
+        assert frames
+    except (ValueError, KeyError, TypeError, AttributeError, AssertionError):
+        print("warning: storyboard unusable, falling back to one frame per line", file=sys.stderr)
+        board = {"cast": "The stick figure from the reference image."}
+        frames = [{"start": s, "scene": line} for s, line in zip(line_starts(lines), lines)]
+    return with_text({"cast": board.get("cast", ""), "frames": frames}, lines)
+
+
+def marked_script(board: dict, lines: list[str], i: int) -> str:
+    s, e = spans(board, lines)[i - 1]
+    w = script_words(lines)
+    return " ".join([*w[:s], ">>>", *w[s:e], "<<<", *w[e:]])
 
 
 def frame_prompt(i: int, lines: list[str], board: dict, n_prev: int, n_next: int = 0) -> str:
     """Prompt for drawing frame i. Images sent with it: reference, n_prev earlier frames
     (oldest first), then n_next later frames."""
-    n = len(lines)
+    n = len(board["frames"])
     images = "Image 1 is the style and main-character reference."
     if n_prev:
         images += (f" Images 2-{n_prev + 1} are the frames that come just before this one, oldest first;"
@@ -160,10 +322,10 @@ def frame_prompt(i: int, lines: list[str], board: dict, n_prev: int, n_next: int
                    " this frame's own moment.")
     else:
         images += " This is the opening frame."
-    before = f'Previous line: "{lines[i - 2]}"\n' if i > 1 else ""
-    after = f'Next line: "{lines[i]}"\n' if i < n else ""
-    return f"""You are drawing frame {i} of {n} of a short narrated stick-figure video,
-one frame per narration line.
+    before = f'Previous frame\'s words: "{frame_text(board, lines, i - 1)}"\n' if i > 1 else ""
+    after = f'Next frame\'s words: "{frame_text(board, lines, i + 1)}"\n' if i < n else ""
+    return f"""You are drawing frame {i} of {n} of a short narrated stick-figure video. Each frame
+is on screen while a stretch of the narration is spoken.
 
 STYLE: {STYLE}
 
@@ -171,12 +333,12 @@ CAST: {board['cast']}
 
 IMAGES: {images}
 
-FULL SCRIPT (context only; draw just the marked line):
-{numbered(lines, mark=i)}
+FULL SCRIPT (context only; draw just the part between >>> and <<<):
+{marked_script(board, lines, i)}
 
-{before}THIS LINE: "{lines[i - 1]}"
+{before}THIS FRAME'S WORDS: "{frame_text(board, lines, i)}"
 {after}
-SCENE TO DRAW: {board['scenes'][i - 1]}"""
+SCENE TO DRAW: {board['frames'][i - 1]['scene']}"""
 
 
 IMAGE_EXTS = (".png", ".jpg", ".jpeg")
@@ -190,17 +352,30 @@ def find_frame(outdir: Path, i: int) -> Path | None:
     return None
 
 
-def load_board(outdir: Path) -> dict | None:
+def load_board(outdir: Path, lines: list[str]) -> dict | None:
     p = outdir / "storyboard.json"
-    return json.loads(p.read_text()) if p.exists() else None
+    if not p.exists():
+        return None
+    board = json.loads(p.read_text())
+    if "scenes" in board and "frames" not in board:  # old one-frame-per-line format
+        board["frames"] = [{"start": s, "scene": sc} for s, sc in zip(line_starts(lines), board.pop("scenes"))]
+    return with_text(board, lines)
 
 
 def save_board(outdir: Path, board: dict) -> None:
+    board = {"cast": board["cast"], "frames": board["frames"], **{k: v for k, v in board.items()
+             if k not in ("cast", "frames")}}
     (outdir / "storyboard.json").write_text(json.dumps(board, indent=2))
 
 
-def generate_image(prompt: str, refs: list[Path], outdir: Path, stem: str) -> Path:
-    """One image-model call: prompt + reference images in order. Saves outdir/stem.<ext>."""
+def generate_image(prompt: str, refs: list[Path], outdir: Path, stem: str,
+                   local_prompt: str | None = None, local_refs: list[Path] | None = None) -> Path:
+    """One image-model call: prompt + reference images in order. Saves outdir/stem.<ext>.
+    The local backend uses local_prompt/local_refs (shorter, fewer images) when given."""
+    if backend() == "local":
+        path = outdir / f"{stem}.png"
+        local_image(local_prompt or prompt, local_refs if local_refs is not None else refs[:2], path)
+        return path
     r = get_client().interactions.create(
         model=IMAGE_MODEL,
         input=[{"type": "text", "text": prompt}, *map(image_part, refs)],
@@ -239,9 +414,11 @@ def image_part(path: Path) -> dict:
 
 def print_storyboard(board: dict, lines: list[str], path: Path) -> None:
     print(f"\nCAST: {board['cast']}\n")
-    for i, (line, scene) in enumerate(zip(lines, board["scenes"]), 1):
-        print(f"{i:02d}. {line}\n    -> {scene}\n")
-    print(f"saved: {path}")
+    for i, ((s, e), f) in enumerate(zip(spans(board, lines), board["frames"]), 1):
+        print(f"{i:02d}. ~{(e - s) / WORDS_PER_SECOND:.1f}s  \"{f['text']}\"\n    -> {f['scene']}\n")
+    n = len(board["frames"])
+    cost = f", ~${n * image_cost():.2f} in images" if image_cost() else ""
+    print(f"{n} frames{cost}. saved: {path}")
 
 
 def main() -> None:
@@ -256,27 +433,43 @@ def main() -> None:
     title, lines = read_note(args.note)
     outdir = OUT / args.note
     outdir.mkdir(parents=True, exist_ok=True)
-    print(f"{args.note}: {title!r}, {len(lines)} frames (~${len(lines) * IMAGE_COST:.2f} in images)")
+    print(f"{args.note}: {title!r}, {len(script_words(lines))} words")
     if args.dry_run and (args.storyboard_only or args.replan):
         sys.exit("--dry-run can't be combined with --storyboard-only/--replan")
 
-
     board_path = outdir / "storyboard.json"
     if board_path.exists() and not args.replan:
-        board = load_board(outdir)
+        board = load_board(outdir, lines)
     elif args.dry_run:
-        board = {"cast": "(storyboard is generated on a real run)", "scenes": list(lines)}
+        sys.exit(f"no storyboard yet; run `just storyboard {args.note}` first (it's ~free)")
     else:
+        stale = sorted(p for p in outdir.glob("frame-*") if p.is_file())
+        if stale:  # images from the old plan don't match the new one
+            k = 1
+            while (outdir / "history" / f"before-replan-{k}").exists():
+                k += 1
+            dest = outdir / "history" / f"before-replan-{k}"
+            dest.mkdir(parents=True)
+            for p in stale:
+                p.rename(dest / p.name)
+            if board_path.exists():
+                board_path.rename(dest / board_path.name)
+            print(f"moved the old plan's {len(stale)} frame files to {dest}")
         print("storyboarding...")
-        board = make_storyboard(get_client(), title, lines)
+        board = make_storyboard(title, lines)
         save_board(outdir, board)
 
     if args.storyboard_only:
         print_storyboard(board, lines, board_path)
         return
 
+    n = len(board["frames"])
+    todo = sum(1 for i in range(1, n + 1) if not find_frame(outdir, i))
+    where = f"~${todo * image_cost():.2f}" if image_cost() else "local"
+    print(f"{n} frames, {todo} to generate ({where})")
+
     prev: list[Path] = []
-    for i in range(1, len(lines) + 1):
+    for i in range(1, n + 1):
         stem = f"frame-{i:02d}"
         existing = find_frame(outdir, i)
         if existing:
@@ -286,13 +479,16 @@ def main() -> None:
 
         refs = prev[-PREV_FRAMES:]
         prompt = frame_prompt(i, lines, board, len(refs))
-        (outdir / f"{stem}.txt").write_text(prompt)
+        local_refs = [REFERENCE, *prev[-1:]]  # local: reference + previous frame only
+        local_prompt = local_frame_prompt(i, board, len(local_refs))
+        used = local_prompt if backend() == "local" else prompt
+        (outdir / f"{stem}.txt").write_text(used)
         if args.dry_run:
-            print(f"\n===== {stem} (+ reference + {len(refs)} previous) =====\n{prompt}")
+            print(f"\n===== {stem} (+ reference + {len(refs)} previous) =====\n{used}")
             continue
 
-        print(f"{stem}: {lines[i - 1][:60]}")
-        prev.append(generate_image(prompt, [REFERENCE, *refs], outdir, stem))
+        print(f"{stem}: {frame_text(board, lines, i)[:60]}")
+        prev.append(generate_image(prompt, [REFERENCE, *refs], outdir, stem, local_prompt, local_refs))
 
     print(f"done: {outdir}")
 

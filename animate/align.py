@@ -9,7 +9,7 @@ so instead of transcribing (which can mishear) we *align*: Whisper, via
 stable-ts, works out when each known word is spoken.
 
 Output: animate/out/<id>/words-NN.json, a list of [word, start, end] in
-seconds from the start of that clip. stitch.py uses these for word-by-word
+seconds from the start of that clip. Redone whenever its voice clip is newer. stitch.py uses these for word-by-word
 captions; without them it estimates timings. Existing files are skipped.
 
 Needs: stable-ts (in requirements.txt, installed by `just setup`; pulls in
@@ -35,10 +35,10 @@ def main() -> None:
     todo = []
     for i, line in enumerate(lines, 1):
         wav, out = outdir / f"voice-{i:02d}.wav", outdir / f"words-{i:02d}.json"
-        if out.exists():
-            print(f"{out.name}: exists, skipping")
-        elif not wav.exists():
+        if not wav.exists():
             print(f"{wav.name}: missing, skipping (run `just voice {args.note}`)")
+        elif out.exists() and out.stat().st_mtime >= wav.stat().st_mtime:
+            print(f"{out.name}: up to date, skipping")
         else:
             todo.append((line, wav, out))
     if not todo:

@@ -2,3 +2,4 @@ __pycache__/
 .env
 animate/out/
 .venv/
+animate/models/
