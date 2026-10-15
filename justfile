@@ -52,6 +52,10 @@ video note: (animate note) (voice note) (align note) (stitch note)
 edit note request *args:
     .venv/bin/python animate/edit.py {{note}} {{quote(request)}} {{args}}
 
+# Delete the run logs in logs/ (every animate/voice/align/stitch/edit run writes one)
+clean-logs:
+    rm -rf logs
+
 # Change one frame directly, e.g. `just frame 001 6 "make the trophy black and white"` (add --redraw to draw it fresh)
 frame note n request *args:
     .venv/bin/python animate/edit.py {{note}} {{quote(request)}} --frame {{n}} {{args}}

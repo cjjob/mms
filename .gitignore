@@ -3,3 +3,4 @@ __pycache__/
 animate/out/
 .venv/
 animate/models/
+logs/

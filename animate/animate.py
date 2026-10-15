@@ -36,6 +36,7 @@ import json
 import os
 import re
 import sys
+import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -48,6 +49,7 @@ IMAGE_MODEL = "gemini-3.1-flash-lite-image"  # cheapest image model, ~$0.034 per
 IMAGE_COST = 0.0336
 REFERENCE = HERE / "animate_reference.png"
 PREV_FRAMES = 2  # how many earlier frames to feed back in for continuity
+REQUEST_TIMEOUT = 240  # seconds per Gemini call; normal is 30-100s, without this a stalled call hangs forever
 OUT = HERE / "out"
 
 STYLE = (
@@ -411,8 +413,13 @@ def get_client():
         key = os.environ.get("GOOGLE_API_KEY")
         if not key:
             sys.exit("GOOGLE_API_KEY missing (put it in .env)")
+        if os.environ.get("DEBUG"):  # DEBUG=1 just animate 001: log every HTTP request/response
+            import logging
+            logging.basicConfig(level=logging.DEBUG, format="%(asctime)s %(name)s: %(message)s",
+                                datefmt="%H:%M:%S")
         from google import genai
-        _client = genai.Client(api_key=key)
+        _client = genai.Client(api_key=key,
+                               http_options=genai.types.HttpOptions(timeout=REQUEST_TIMEOUT * 1000))
     return _client
 
 
@@ -497,19 +504,65 @@ def main() -> None:
             print(f"\n===== {stem} (+ reference + {len(refs)} previous) =====\n{used}")
             continue
 
-        print(f"{stem}: {frame_text(board, lines, i)[:60]}")
+        t0 = time.monotonic()
+        print(f"{time.strftime('%H:%M:%S')} {stem}: {frame_text(board, lines, i)[:60]}", flush=True)
         prev.append(generate_image(prompt, [REFERENCE, *refs], outdir, stem, local_prompt, local_refs))
+        print(f"           done in {time.monotonic() - t0:.0f}s", flush=True)
 
     print(f"done: {outdir}")
 
 
+LOGS = ROOT / "logs"
+
+
+class _Tee:
+    """Pass writes through to a terminal stream and copy them, time-stamped per line, to a log file."""
+
+    def __init__(self, stream, log):
+        self._stream, self._log, self._at_line_start = stream, log, True
+
+    def write(self, text: str) -> int:
+        self._stream.write(text)
+        for part in text.splitlines(keepends=True):
+            if self._at_line_start:
+                self._log.write(time.strftime("%H:%M:%S "))
+            self._log.write(part)
+            self._at_line_start = part.endswith("\n")
+        self._log.flush()
+        return len(text)
+
+    def flush(self) -> None:
+        self._stream.flush()
+        self._log.flush()
+
+    def __getattr__(self, name):  # isatty, fileno, encoding, ... from the real stream
+        return getattr(self._stream, name)
+
+
+def start_log() -> Path:
+    """Copy this run's stdout/stderr to logs/<date>_<time>_<script>_<args>.log."""
+    LOGS.mkdir(exist_ok=True)
+    script = Path(sys.argv[0]).stem
+    args = re.sub(r"[^\w.-]+", "-", "_".join(sys.argv[1:]))[:60].strip("-_")
+    path = LOGS / f"{time.strftime('%Y-%m-%d_%H%M%S')}_{script}{'_' + args if args else ''}.log"
+    log = path.open("a", encoding="utf-8")
+    log.write(f"{time.strftime('%H:%M:%S')} $ {' '.join([script, *sys.argv[1:]])}\n")
+    sys.stdout, sys.stderr = _Tee(sys.stdout, log), _Tee(sys.stderr, log)
+    return path
+
+
 def run_cli(fn) -> None:
-    """Run fn, turning API errors into a one-line message instead of the SDK's traceback."""
+    """Run fn with its output logged to logs/, turning API errors into a one-line message
+    instead of the SDK's traceback."""
+    start_log()
     try:
         fn()
     except KeyboardInterrupt:
         sys.exit(130)
     except Exception as e:
+        if type(e).__name__ in ("TimeoutException", "ReadTimeout", "ConnectTimeout", "WriteTimeout", "PoolTimeout"):
+            sys.exit(f"Gemini API call timed out after {REQUEST_TIMEOUT}s ({type(e).__name__}). "
+                     "Rerun to continue; finished frames are kept.")
         if type(e).__module__.startswith("google."):
             sys.exit(f"Gemini API error: {e}")
         raise
