@@ -15,3 +15,13 @@ grid_width = "40rem"
 
 # Viewport width below which the grid becomes a single-column list.
 list_breakpoint = "30rem"
+
+# Gemini text model for animate/: writes the storyboard and plans `just edit` changes.
+# Any Gemini model ID works; prices per 1M tokens (input / output), Oct 2026:
+#   gemini-3.1-flash-lite   $0.25 / $1.50   cheapest; loose with rules
+#   gemini-3.5-flash-lite   $0.30 / $2.50
+#   gemini-3.6-flash        $0.75 / $3.75   older than 3.8, same price
+#   gemini-3.8-flash        $0.75 / $3.75   good balance (price doubles 1 Jan 2027)
+#   gemini-3.1-pro-preview  $2 / $12        preview; may change or be retired
+#   gemini-4-argon          $2 / $10        best quality, slowest (price doubles 1 Dec 2026)
+text_model = "gemini-3.8-flash"

@@ -41,9 +41,9 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
 sys.path.insert(0, str(ROOT))
-from build import FIELD_BY_KEY, FIELD_RE, SRC  # reuse the note format  # noqa: E402
+from build import FIELD_BY_KEY, FIELD_RE, SRC, load_config  # reuse the note format  # noqa: E402
 
-PLAN_MODEL = "gemini-3.1-flash-lite"         # text: storyboard and edit planning
+TEXT_MODEL = load_config()["text_model"]     # text: storyboard and edits; set in config.toml
 IMAGE_MODEL = "gemini-3.1-flash-lite-image"  # cheapest image model, ~$0.034 per image
 IMAGE_COST = 0.0336
 REFERENCE = HERE / "animate_reference.png"
@@ -92,7 +92,7 @@ def image_cost() -> float:
 
 def ask_text(prompt: str) -> str:
     """One text-model call (storyboard, edit planning). Always Gemini: see the README."""
-    return get_client().interactions.create(model=PLAN_MODEL, input=prompt).output_text or ""
+    return get_client().interactions.create(model=TEXT_MODEL, input=prompt).output_text or ""
 
 
 def local_frame_prompt(i: int, board: dict, n_refs: int) -> str:
@@ -177,7 +177,9 @@ def read_note(nid: str) -> tuple[str, list[str]]:
 
 
 WORDS_PER_SECOND = 2.5  # rough narration speed, for pacing guidance and estimates
-MAX_FRAMES = 80         # safety limit, not a target
+MAX_FRAMES = 120        # safety limit, not a target
+WORDS_PER_FRAME = 6     # target pacing: ~2.4s per frame, the cut rate of a typical Reel
+MAX_FRAME_WORDS = 10    # hard cap (~4s) given to the model; longer frames are warned about
 
 
 def script_words(lines: list[str]) -> list[str]:
@@ -251,14 +253,16 @@ def with_text(board: dict, lines: list[str]) -> dict:
 
 def make_storyboard(title: str, lines: list[str]) -> dict:
     words = script_words(lines)
+    target = min(MAX_FRAMES, max(1, round(len(words) / WORDS_PER_FRAME)))
     prompt = f"""You are storyboarding a short narrated video drawn as simple black-and-white
 stick-figure cartoons. The narration is below with every word numbered. You decide how many
 frames the video has and exactly where each one starts.
 
-Pacing: a frame usually stays on screen for 2-6 seconds. Speech runs at about
-{WORDS_PER_SECOND:g} words per second, so that's roughly 5-15 words per frame. Break this when it
-genuinely helps: a single punchy word can get its own quick frame, and a calm, reflective
-passage can hold one image for longer.
+Pacing: this is for Instagram Reels, so cut fast. Speech runs at about {WORDS_PER_SECOND:g} words
+per second; a frame should usually cover 4-8 words (about 1.5-3 seconds). Aim for about
+{target} frames in total. A single punchy word can get its own quick frame. No frame may
+cover more than {MAX_FRAME_WORDS} words: if a sentence is longer, split it into several frames that
+show the moment progressing (a different action, angle or detail), not the same picture again.
 
 Cut points: a new frame can start on ANY word, including mid-sentence. Start it where the
 picture should change, e.g. exactly as a key word is spoken so the image lands with it, not
@@ -276,12 +280,14 @@ Rules:
   identically every time. The main character is the plain stick figure from the
   reference image; tell other characters apart by a single simple feature (e.g. a cap,
   a ponytail, taller), never by colour.
-- "scene": one or two sentences describing a concrete, drawable moment: who, doing
-  what, with which simple props or setting. Turn abstract words into a clear visual
+- "scene": one or two sentences describing ONE concrete, drawable moment, as a single
+  still image: who, doing what, with which simple props or setting. Never several poses,
+  steps, a sequence, a montage or split panels in one scene ("three poses", "then", "quick
+  cuts"): if the words list or walk through several things, give each its own frame. Turn abstract words into a clear visual
   metaphor. Consecutive frames should flow like one continuous story with the same
   characters, not unrelated pictures.
 - No text, words or speech bubbles in any scene.
-- At most {MAX_FRAMES} frames.
+- No frame covers more than {MAX_FRAME_WORDS} words. At most {MAX_FRAMES} frames.
 
 Title: {title}
 
@@ -296,6 +302,10 @@ Narration ({len(words)} words, about {len(words) / WORDS_PER_SECOND:.0f} seconds
         print("warning: storyboard unusable, falling back to one frame per line", file=sys.stderr)
         board = {"cast": "The stick figure from the reference image."}
         frames = [{"start": s, "scene": line} for s, line in zip(line_starts(lines), lines)]
+    starts = [f["start"] for f in frames] + [len(words)]
+    long = [i + 1 for i, (s, e) in enumerate(zip(starts, starts[1:])) if e - s > MAX_FRAME_WORDS]
+    if long:
+        print(f"warning: frames {long} cover more than {MAX_FRAME_WORDS} words", file=sys.stderr)
     return with_text({"cast": board.get("cast", ""), "frames": frames}, lines)
 
 

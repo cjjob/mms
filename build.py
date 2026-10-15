@@ -47,6 +47,7 @@ DEFAULT_CONFIG: dict[str, object] = {
     ),
     "grid_width": "40rem",  # max-width of the index note grid
     "list_breakpoint": "30rem",  # viewport width below which the grid becomes a list
+    "text_model": "gemini-3.8-flash",  # Gemini model for animate/ storyboards and edits
 }
 
 FIELDS: tuple[str, ...] = ("ID", "Title", "Subtitle", "Description", "Links", "Related")
