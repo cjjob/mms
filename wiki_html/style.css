@@ -51,6 +51,15 @@ h1 {
   margin: 0 0 1.25rem;
 }
 
+main > h1,
+.subtitle {
+  text-align: var(--title-align);
+}
+
+h1:has(+ .subtitle) {
+  margin-bottom: 0;
+}
+
 h2, h3, h4, h5, h6 {
   font-size: 1rem;
   font-weight: 700;

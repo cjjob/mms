@@ -40,6 +40,7 @@ SITE_TITLE: str = "Might Make Sense"
 # are ignored (with a warning) in favour of these defaults.
 DEFAULT_CONFIG: dict[str, object] = {
     "justify": True,  # justify note description paragraphs
+    "center_title": False,  # centre note titles and subtitles
     "font": (
         "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "
         '"DejaVu Sans Mono", "Liberation Mono", monospace'
@@ -85,7 +86,7 @@ class Note:
     path: Path
     title: str = ""
     subtitle: str = ""
-    description: list[str] = field(default_factory=list)  # paragraphs
+    description: list[str] = field(default_factory=list)  # paragraphs, lines kept
     links: list[str] = field(default_factory=list)
     related: list[str] = field(default_factory=list)
 
@@ -125,12 +126,14 @@ def load_config() -> dict[str, object]:
 
 def config_style(config: dict[str, object]) -> str:
     align: str = "justify" if config["justify"] else "left"
+    title_align: str = "center" if config["center_title"] else "left"
     return (
         "<style>\n"
         ":root {\n"
         f"  --font: {config['font']};\n"
         f"  --grid-width: {config['grid_width']};\n"
         f"  --description-align: {align};\n"
+        f"  --title-align: {title_align};\n"
         "}\n"
         f"@media (max-width: {config['list_breakpoint']}) {{\n"
         "  .notes-grid { display: block; }\n"
@@ -176,16 +179,17 @@ def parse_note(path: Path) -> Note:
     note.title = " ".join(raw["Title"]).strip()
     note.subtitle = " ".join(raw["Subtitle"]).strip()
 
-    # description: blank lines separate paragraphs
+    # description: blank lines separate paragraphs; single newlines are kept
+    # and rendered as <br>
     para: list[str] = []
     for line in raw["Description"]:
         if line:
             para.append(line)
         elif para:
-            note.description.append(" ".join(para))
+            note.description.append("\n".join(para))
             para = []
     if para:
-        note.description.append(" ".join(para))
+        note.description.append("\n".join(para))
 
     note.links = split_values("\n".join(raw["Links"]))
     note.related = split_values("\n".join(raw["Related"]))
@@ -317,7 +321,8 @@ def render_note(note: Note, notes_by_id: dict[str, Note], targets: LinkTargets) 
         out.append(f'<p class="subtitle">{inline(note.subtitle, targets)}</p>')
 
     for paragraph in note.description:
-        out.append(f'<p class="description">{inline(paragraph, targets)}</p>')
+        text: str = inline(paragraph, targets).replace("\n", "<br>\n")
+        out.append(f'<p class="description">{text}</p>')
 
     if note.links:
         items: list[str] = ['<ul class="links">']
