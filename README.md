@@ -41,7 +41,7 @@ Styling lives in `wiki_html/style.css` (black background, white monospace type, 
 |---|---|---|---|
 | Storyboard | `animate.py --storyboard-only` | `text_model` in `config.toml` (currently `gemini-4-argon`) | a few cents |
 | Frames | `animate.py` | `gemini-3.1-flash-lite-image` (or local, see below) | ~$0.034/image; ~40-65 frames, ~$1.35-2.20 |
-| Voiceover | `voice.py` | `gemini-3.8-flash-lite-tts` | ~1p |
+| Voiceover | `voice.py` | `gemini-3.8-flash-lite-tts` (or ElevenLabs, see below) | ~1p (ElevenLabs: credits per character) |
 | Word timings | `align.py` | Whisper `base.en` via stable-ts, local | free |
 | Stitch | `stitch.py` | ffmpeg, local | free |
 
@@ -101,7 +101,7 @@ How it keeps frames coherent:
 1. **Storyboard** — one text-model call reads the whole script, with every word numbered, and decides how many frames there are and where each one starts. A cut can land on any word, mid-sentence included (e.g. exactly as a key word is spoken); frames are paced for Reels at about 4-8 words (1.5-3s) each, targeting `words / WORDS_PER_FRAME` frames, never more than `MAX_FRAME_WORDS` (10; longer frames are warned about) (`MAX_FRAMES = 120` is only a safety limit). The text model is `text_model` in `config.toml`. Each frame gets a concrete, drawable scene. The model first plans the world: a `cast` and up to 3 `settings`, each with a fixed layout and 2-3 small background details that stay in every frame there (so frames aren't empty), then writes frames that may only use what that world contains, so nothing appears from nowhere. It also adds a small visual gag to about one frame in four. When drawing, each frame gets its setting's description, and the first frame drawn in that setting is sent as an extra reference so the background stays put. Saved as `storyboard.json` (`{"start": word number, "text": the words it covers, "setting": ..., "scene": ...}`) and reused on later runs; `just storyboard <id> --replan` makes a fresh one and moves the old plan's frames to `history/before-replan-N/`, since they no longer match. Storyboards from before this change (one frame per line) still load as-is.
 2. **Frames** — each image request gets the style reference `animate/animate_reference.png`, the previous 2 frames, the full script with this frame's words marked, the previous and next frames' words, and this frame's scene.
 
-Voiceover: the whole Description is voiced in a single call, so the delivery flows across lines instead of stopping and restarting at each one. Lines in the note don't affect the audio at all.
+Voiceover: the whole Description is voiced in a single call, so the delivery flows across lines instead of stopping and restarting at each one. Lines in the note don't affect the audio at all. Set `VOICE_BACKEND=elevenlabs` in `.env` to use ElevenLabs instead (voice ID, model and optional `voice_settings` are constants at the top of `voice.py`; needs `ELEVENLABS_API_KEY`). ElevenLabs returns per-character timings with the audio, so `voice.py` writes `words.json` itself and `just align` skips. Switching backend re-records.
 
 Stitching: the narration is that one clip (or 3s of silence per line before there is one, so you can preview timing before generating audio). Each frame appears as its first word is spoken (from the word timings; estimated if `just align` hasn't run) and stays until the next one, with a slow 5% zoom-in ("Ken Burns"); then video, narration and captions are combined into one MP4.
 
@@ -117,7 +117,7 @@ Output goes to `animate/out/` (git-ignored):
 - `<id>.ass` — the captions that were burned in
 - `<id>.mp4` — the finished video
 
-The voiceover is matched to the note's text: edit anything in the Description (or `VOICE`/`STYLE` in `voice.py`) and `just voice` re-records the whole script (~1p), `just align` redoes the timings when the clip is newer, and `just stitch` refuses to build with a voiceover that doesn't match the note. To redo a frame, use `just edit` / `just frame`, or delete `frame-NN.*` and re-run `just animate`. `just stitch` always rebuilds the MP4.
+The voiceover is matched to the note's text: edit anything in the Description (or the voice settings in `voice.py`, or `VOICE_BACKEND`) and `just voice` re-records the whole script (~1p), `just align` redoes the timings when the clip is newer, and `just stitch` refuses to build with a voiceover that doesn't match the note. To redo a frame, use `just edit` / `just frame`, or delete `frame-NN.*` and re-run `just animate`. `just stitch` always rebuilds the MP4.
 
 Composition: the image prompt asks for the subject in the middle half of the frame, with the lower third left as white space for captions and the top eighth clear for app UI.
 

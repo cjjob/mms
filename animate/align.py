@@ -10,7 +10,8 @@ works out when each known word is spoken.
 
 Output: animate/out/<id>/words.json, one [word, start, end] per word of the
 script (whitespace-separated, as in the note), in seconds from the start of
-voice.wav. Redone whenever voice.wav is newer. stitch.py cuts frames and times
+voice.wav. Redone whenever voice.wav is newer (ElevenLabs voiceovers come with
+words.json already, so this skips them). stitch.py cuts frames and times
 captions from it; without it, it estimates.
 
 Needs: stable-ts (in requirements.txt, installed by `just setup`; pulls in
