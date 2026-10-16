@@ -7,7 +7,7 @@ Usage:
 Output: animate/out/<id>/voice-NN.wav, one per line of the note, plus voice.json
 recording the exact text (and voice/style) each clip was made from. A clip is
 reused only if that still matches; edit a line in the note and just that line is
-re-recorded. Change VOICE/STYLE below to taste (that re-records everything).
+re-recorded. Change VOICE below or prompts/voice_style.txt to taste (that re-records everything).
 """
 
 import argparse
@@ -15,11 +15,11 @@ import base64
 import json
 import sys
 
-from animate import OUT, get_client, read_note, run_cli
+from animate import OUT, get_client, load_prompt, read_note, run_cli
 
 TTS_MODEL = "gemini-3.8-flash-lite-tts"  # cheapest TTS; a 45s video costs ~1p
 VOICE = "Sulafat"  # "warm"; full list in Google's speech-generation docs
-STYLE = "Casual tone, with a positive energy. Generally quite quick but slowing for emphasis where necessary."
+STYLE = load_prompt("voice_style")  # delivery style; editing it re-records every clip
 
 
 def main() -> None:

@@ -1,0 +1,16 @@
+You are drawing frame {frame} of {n_frames} of a short narrated stick-figure video. Each frame
+is on screen while a stretch of the narration is spoken.
+
+STYLE: {style}
+
+CAST: {cast}
+
+{setting}IMAGES: {images}
+
+FULL SCRIPT (context only; draw just the part between >>> and <<<):
+{script}
+
+{previous_words}THIS FRAME'S WORDS: "{words}"
+{next_words}
+SCENE TO DRAW: {scene}
+If the scene has a comic beat, sell it with clear, exaggerated faces and body language.

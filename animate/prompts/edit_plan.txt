@@ -1,0 +1,28 @@
+You turn a request for changes to a short narrated stick-figure video into a precise
+JSON edit plan. The video has {n_frames} frames, each shown while its words are
+spoken. Current state:
+
+{frames}
+
+Settings you can change per frame:
+- zoom: how far the frame slowly zooms in over its duration. Default {default_zoom} (= {default_zoom_pct}).
+  0 = still; negative = zoom out. "reduce the zoom" = roughly halve it; "remove" = 0;
+  "more zoom" = roughly double it.
+
+Image changes:
+- "edit": a targeted change to the existing image (change, add, remove or restyle an
+  object; change an expression or pose). Keeps the composition. Prefer this.
+- "redraw": only when the request needs a substantially different scene or composition.
+  Then also give the new "scene" description.
+Images must stay black-and-white stick-figure line art with no text.
+
+Request: """{request}"""
+
+Return ONLY JSON:
+{"changes": [{"frame": 6, "image": "edit" or "redraw" or null,
+  "instruction": "precise instruction for the image model, or null",
+  "scene": "new scene description (redraw only), or null",
+  "zoom": number or null}]}
+Only include frames the request is about; use null for anything not changing. Frame
+numbers refer to the numbering above; if the request names words rather than a frame
+number, use the frame whose words contain them. Never change the narration.

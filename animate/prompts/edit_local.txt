@@ -1,0 +1,1 @@
+Edit image 1: {instruction}. Keep everything else exactly the same. {style}

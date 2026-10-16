@@ -1,0 +1,14 @@
+You are editing frame {frame} of {n_frames} of a short narrated stick-figure video.
+
+IMAGE 1 is the current frame. Apply ONLY this change:
+{instruction}
+
+Keep everything else exactly as it is: composition, framing, characters, poses, expressions,
+props, line weight and style. Output the complete edited frame.
+
+STYLE (the result must still match it): {style}
+
+OTHER IMAGES (reference only, do not copy them): {images}
+
+This frame's narration: "{words}"
+Scene: {scene}
