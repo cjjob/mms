@@ -44,8 +44,9 @@ STYLE = load_prompt("voice_style")  # delivery style; editing it re-records (Gem
 
 # ElevenLabs (VOICE_BACKEND=elevenlabs)
 ELEVEN_VOICE = "EST9Ui6982FZPSi7gCHi"
-ELEVEN_MODEL = "eleven_v4"  # same as the website; `just eleven-history` shows what a website take used
-ELEVEN_SETTINGS = {}  # voice_settings overrides, e.g. {"stability": 0.4, "speed": 1.1}; {} = the voice's own
+ELEVEN_MODEL = "eleven_v4_exp"  # what the website used (`just eleven-history`); if the API rejects it, use "eleven_v4"
+ELEVEN_SETTINGS = {"stability": 0.5, "similarity_boost": 0.7}  # from the website take; e.g. add "speed": 1.1
+# (the website's "similarity" is the API's "similarity_boost"; its text_boost/focus aren't in the API)
 ELEVEN_SEED = None  # e.g. 123456789 to pin a take you liked (see voice.json "seed_used"); None = random
 ELEVEN_TIMEOUT = 240  # seconds
 
