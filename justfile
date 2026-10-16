@@ -37,8 +37,8 @@ animate note *args:
 voice note *args:
     .venv/bin/python animate/voice.py {{note}} {{args}}
 
-# Voice the script (if it changed) and play it: a cheap preview before drawing anything
-listen note: (voice note)
+# Voice the script (if it changed; --retake for a new take) and play it: a cheap preview before drawing anything
+listen note *args: (voice note args)
     afplay animate/out/{{note}}/voice.wav
 
 # Model + settings of your recent ElevenLabs generations (e.g. from the website), to copy into voice.py
