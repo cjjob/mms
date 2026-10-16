@@ -4,16 +4,17 @@
 Usage:
   python3 animate/stitch.py 001
 
-The narration is one continuous track: each line's voice-NN.wav plus a short
-pause (or SILENT_SECONDS of silence if there's no clip). Frames follow the
+The narration is voice.wav, the whole script voiced in one go (or, before
+`just voice`, SILENT_SECONDS of silence per line). Frames follow the
 storyboard: each one appears as its first word is spoken (word timings from
-words-NN.json, or estimated) and stays until the next, with a slow zoom-in. Output is
+words.json, or estimated) and stays until the next, with a slow zoom-in. Output is
 animate/out/<id>.mp4 at 1080x1920, 30fps, H.264/AAC (TikTok/Reels-ready),
 plus <id>.ass, the caption file that was burned in.
 
 Captions: TikTok style, a few words at a time with the spoken word
-highlighted and popping. Word timings come from words-NN.json (`just align`)
-when present, otherwise they're estimated from each clip's length.
+highlighted and popping, never spanning two lines of the note. Word timings
+come from words.json (`just align`) when present, otherwise they're estimated
+from the clip's length.
 
 Needs ffmpeg built with libass for captions. Homebrew's default `ffmpeg` is a
 lite build without it; use `ffmpeg-full` (see has_libass below).
@@ -29,14 +30,14 @@ import tempfile
 import wave
 from pathlib import Path
 
-from animate import OUT, find_frame, line_starts, load_board, read_note, run_cli
+from animate import OUT, find_frame, line_starts, load_board, read_note, run_cli, script_text, script_words
 
 HERE = Path(__file__).resolve().parent
 
 # Video
 W, H, FPS = 1080, 1920, 30
-PAUSE = 0.4           # seconds of silence after each line
-SILENT_SECONDS = 3.0  # frame length when there's no voice clip
+TAIL = 0.4            # seconds held after the voiceover ends
+SILENT_SECONDS = 3.0  # seconds per line when there's no voiceover yet
 ZOOM = 0.05           # how far each frame zooms in over its duration (5%); 0 = still
 LEAD = 0.08           # a frame appears this many seconds before its first word
 
@@ -89,35 +90,13 @@ def segment(img: Path, n: int, out: Path, zoom: float = ZOOM) -> None:
     ], check=True)
 
 
-def narration(clips: list[tuple[Path | None, float]], out: Path) -> None:
-    """One continuous audio track: each (clip or silence) padded to its duration, back to back."""
-    inputs, chains = [], []
-    for k, (clip, dur) in enumerate(clips):
-        inputs += ["-i", str(clip)] if clip else ["-f", "lavfi", "-t", f"{dur:.3f}", "-i", "anullsrc=r=48000:cl=stereo"]
-        chains.append(f"[{k}:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,"
-                      f"apad=whole_dur={dur:.3f},atrim=0:{dur:.3f}[a{k}]")
-    graph = ";".join(chains) + ";" + "".join(f"[a{k}]" for k in range(len(clips))) + \
-        f"concat=n={len(clips)}:v=0:a=1[out]"
-    subprocess.run(["ffmpeg", "-loglevel", "error", "-y", *inputs, "-filter_complex", graph,
-                    "-map", "[out]", "-c:a", "pcm_s16le", str(out)], check=True)
-
-
-def word_starts(line: str, words: list[list]) -> list[float]:
-    """Start time of each whitespace-separated word of `line`, from timed words that may be
-    tokenised differently (stable-ts splits some words): matched by their letters/digits."""
-    norm = lambda t: re.sub(r"\W", "", t.lower())
-    times = []  # one entry per letter/digit across the timed words
-    for w, start, end in words:
-        nw = norm(w)
-        times += [start + (end - start) * k / max(1, len(nw)) for k in range(len(nw))]
-    mine = line.split()
-    total = sum(len(norm(w)) for w in mine) or 1
-    out, pos = [], 0
-    for w in mine:
-        k = min(len(times) - 1, round(pos * len(times) / total)) if times else 0
-        out.append(times[k] if times else 0.0)
-        pos += len(norm(w))
-    return out
+def narration(clip: Path | None, dur: float, out: Path) -> None:
+    """The audio track: the voiceover (or silence) padded/trimmed to exactly dur seconds."""
+    src = ["-i", str(clip)] if clip else ["-f", "lavfi", "-t", f"{dur:.3f}", "-i", "anullsrc=r=48000:cl=stereo"]
+    subprocess.run(["ffmpeg", "-loglevel", "error", "-y", *src, "-af",
+                    f"aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,"
+                    f"apad=whole_dur={dur:.3f},atrim=0:{dur:.3f}",
+                    "-c:a", "pcm_s16le", str(out)], check=True)
 
 
 # ---------- captions ----------
@@ -232,45 +211,35 @@ def stitch(note: str) -> None:
         sys.exit(f"{len(imgs)} frames but the storyboard has {len(starts)}; run `just animate {note}`")
     imgs = imgs[:len(starts)]
 
-    manifest_path = outdir / "voice.json"
+    # Timeline: one [word, start, end] per script word, in seconds from the start of the video.
+    words = script_words(lines)
+    voice, manifest_path = outdir / "voice.wav", outdir / "voice.json"
     manifest = json.loads(manifest_path.read_text()) if manifest_path.exists() else {}
-    stale = [i for i, line in enumerate(lines, 1) if (outdir / f"voice-{i:02d}.wav").exists()
-             and (manifest.get(f"{i:02d}") or {}).get("text") != line]
-    if stale:
-        sys.exit(f"voice clips don't match the note for line(s) {', '.join(map(str, stale))}; "
-                 f"run `just voice {note}` and `just align {note}` (or `just video {note}`)")
-    voiced = sum((outdir / f"voice-{i:02d}.wav").exists() for i in range(1, len(lines) + 1))
-    if not voiced:
+    estimated = False
+    if voice.exists():
+        if manifest.get("text") != script_text(lines):
+            sys.exit(f"voiceover doesn't match the note; run `just voice {note}` and `just align {note}` "
+                     f"(or `just video {note}`)")
+        speech = wav_seconds(voice)
+        total = speech + TAIL
+        words_file = outdir / "words.json"
+        timed = json.loads(words_file.read_text()) if words_file.exists() else None
+        if not timed or [w[0] for w in timed] != words:
+            timed, estimated = estimate_words(script_text(lines), speech), True
+    else:
         print(f"NOTE: no voiceover found, so this video will be SILENT. Run `just voice {note}` first.")
-    elif voiced < len(lines):
-        print(f"NOTE: only {voiced}/{len(lines)} lines have a voiceover; the rest will be silent.")
+        voice, timed, total = None, [], 0.0
+        for line in lines:
+            timed += [[w, total + s, total + e] for w, s, e in estimate_words(line, SILENT_SECONDS - TAIL)]
+            total += SILENT_SECONDS
 
-    # Timeline: lines back to back; every word gets an absolute start time.
-    offset, clips, events, word_t, estimated = 0.0, [], [], [], 0
-    first_words = set(line_starts(lines))
-    for i, line in enumerate(lines, 1):
-        voice = outdir / f"voice-{i:02d}.wav"
-        if voice.exists():
-            speech = wav_seconds(voice)
-            dur = speech + PAUSE
-        else:
-            voice, speech, dur = None, SILENT_SECONDS - PAUSE, SILENT_SECONDS
-        words_file = outdir / f"words-{i:02d}.json"
-        if words_file.exists():
-            words = json.loads(words_file.read_text())
-        else:
-            words = estimate_words(line, speech)
-            estimated += 1
-        word_t += [offset + t for t in word_starts(line, words)]
-        events += ass_events(words, offset, dur)
-        clips.append((voice, dur))
-        line_offset = offset
-        offset += dur
-        word_t[len(word_t) - len(line.split())] = line_offset  # line's first word: cut at line start
-    total = offset
+    # Captions line by line, so a chunk never runs from one line into the next.
+    events, bounds_w = [], line_starts(lines) + [len(words)]
+    for s, e in zip(bounds_w, bounds_w[1:]):
+        events += ass_events(timed[s:e], 0.0, timed[e][1] if e < len(words) else total)
 
     # Frame boundaries in video frames: each appears just before its first word.
-    t = [0.0] + [word_t[s] if s in first_words else max(0.0, word_t[s] - LEAD) for s in starts[1:]]
+    t = [0.0] + [max(0.0, timed[s][1] - LEAD) for s in starts[1:]]
     bounds = [round(x * FPS) for x in t] + [round(total * FPS)]
     for k in range(1, len(bounds)):  # every frame at least 1 video frame long
         bounds[k] = max(bounds[k], bounds[k - 1] + 1)
@@ -290,10 +259,10 @@ def stitch(note: str) -> None:
         (tmp / "list.txt").write_text("".join(f"file '{p}'\n" for p in parts))
         subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-f", "concat", "-safe", "0",
                         "-i", str(tmp / "list.txt"), "-c", "copy", str(tmp / "joined.mp4")], check=True)
-        narration(clips, tmp / "narration.wav")
+        narration(voice, total, tmp / "narration.wav")
 
         if estimated:
-            print(f"timings: estimated for {estimated} line(s); run `just align {note}` for exact ones")
+            print(f"timings: estimated; run `just align {note}` for exact ones")
         ass = OUT / f"{note}.ass"
         ass.write_text(ass_file(events))
         shutil.copy(ass, tmp / "captions.ass")

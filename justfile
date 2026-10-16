@@ -33,7 +33,7 @@ storyboard note *args:
 animate note *args:
     .venv/bin/python animate/animate.py {{note}} {{args}}
 
-# Generate a voiceover clip per line with Gemini TTS
+# Voice the whole script in one clip with Gemini TTS
 voice note *args:
     .venv/bin/python animate/voice.py {{note}} {{args}}
 

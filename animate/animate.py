@@ -191,6 +191,35 @@ def script_words(lines: list[str]) -> list[str]:
     return [w for line in lines for w in line.split()]
 
 
+def script_text(lines: list[str]) -> str:
+    """The narration as voiced: every line, in one go."""
+    return " ".join(lines)
+
+
+def script_timings(words: list[str], timed: list[list]) -> list[list]:
+    """[word, start, end] for each of `words`, from timed tokens ([text, start, end]) that may be
+    split differently (stable-ts splits some words; ElevenLabs times single characters).
+    Matched by their letters/digits, so punctuation and spacing differences don't matter."""
+    norm = lambda t: re.sub(r"\W", "", t.lower())
+    starts, ends = [], []  # one entry per letter/digit across the timed tokens
+    for w, s, e in timed:
+        n = len(norm(w))
+        starts += [s + (e - s) * k / n for k in range(n)]
+        ends += [s + (e - s) * (k + 1) / n for k in range(n)]
+    total = sum(len(norm(w)) for w in words) or 1
+    out, pos = [], 0
+    for w in words:
+        n = len(norm(w))
+        if not starts:
+            out.append([w, 0.0, 0.0])
+            continue
+        a = min(len(starts) - 1, round(pos * len(starts) / total))
+        b = min(len(starts) - 1, max(a, round((pos + n) * len(starts) / total) - 1))
+        out.append([w, round(starts[a], 3), round(ends[b], 3)])
+        pos += n
+    return out
+
+
 def line_starts(lines: list[str]) -> list[int]:
     """Index (into script_words) of each line's first word."""
     out, k = [], 0
