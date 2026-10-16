@@ -52,19 +52,20 @@ PREV_FRAMES = 2  # how many earlier frames to feed back in for continuity
 REQUEST_TIMEOUT = 240  # seconds per Gemini call; normal is 30-100s, without this a stalled call hangs forever
 OUT = HERE / "out"
 
-STYLE = (
-    "Draw in exactly the style of the reference image: a hand-drawn stick figure "
-    "with a round head, a simple expressive face, rounded hands and feet, and clean, "
-    "even, black outlines on a pure white background. Black and white only: no colour, "
-    "no grey shading, no gradients. Props and setting are drawn simply in the same line "
-    "style, but the frame is never empty: always include the setting's small recurring "
-    "background details, kept small, off to the sides or behind the action. No text, letters, numbers, captions or speech bubbles anywhere. "
-    "COMPOSITION (important): vertical 9:16 frame. Place the main subject and action "
-    "in the centre of the frame, within the middle half of the height. Keep the lower "
-    "third (from about 65% of the way down to the bottom) plain white or only "
-    "unimportant ground/floor lines, because captions are overlaid there. Keep the top "
-    "eighth empty too (app UI). Nothing important near the edges."
-)
+PROMPTS = HERE / "prompts"  # one editable text file per prompt; see prompts/README.md
+
+
+def load_prompt(name: str, **values) -> str:
+    """Read prompts/<name>.txt and fill in its {placeholders}. Braces that aren't a placeholder
+    (e.g. the JSON example in storyboard.txt) are left alone."""
+    text = (PROMPTS / f"{name}.txt").read_text().rstrip("\n")
+    unknown = sorted(set(re.findall(r"\{(\w+)\}", text)) - set(values))
+    if unknown:
+        print(f"warning: prompts/{name}.txt has unknown placeholders {unknown}; sent as-is", file=sys.stderr)
+    return re.sub(r"\{(\w+)\}", lambda m: str(values.get(m[1], m[0])), text)
+
+
+STYLE = load_prompt("style")
 
 
 # ---- local image backend (IMAGE_BACKEND=local) ----
@@ -73,12 +74,7 @@ LOCAL_W, LOCAL_H = 576, 1024  # 9:16, multiples of 16; upscaled to 1080x1920 by 
 LOCAL_STEPS = 4               # klein is distilled for 4 steps
 # Small local models follow short, concrete prompts best. This describes the look;
 # swap animate_reference.png for a drawing of your own character to set it.
-LOCAL_STYLE = (
-    "Crude, deliberately simple MS Paint-style drawing: a stick figure with a large round "
-    "head, dot eyes, a simple line mouth, thin wobbly black lines. Flat pure white "
-    "background, black lines only, no shading, no colour, no text. Vertical frame, the "
-    "character and action centred in the middle of the frame, the bottom third left empty."
-)
+LOCAL_STYLE = load_prompt("style_local")
 
 
 def backend() -> str:
@@ -100,8 +96,8 @@ def ask_text(prompt: str) -> str:
 
 def local_frame_prompt(i: int, board: dict, n_refs: int) -> str:
     cont = " Continue the story from image 2: same characters, same proportions." if n_refs > 1 else ""
-    return (f"{LOCAL_STYLE} The main character looks exactly like the one in image 1.{cont} "
-            f"Characters: {board['cast']} {setting_line(board, i)}Scene: {board['frames'][i - 1]['scene']}")
+    return load_prompt("frame_local", style=LOCAL_STYLE, continue_from_previous=cont, cast=board["cast"],
+                       setting=setting_line(board, i), scene=board["frames"][i - 1]["scene"])
 
 
 def setting_line(board: dict, i: int) -> str:
@@ -110,7 +106,7 @@ def setting_line(board: dict, i: int) -> str:
 
 
 def local_edit_prompt(instruction: str) -> str:
-    return f"Edit image 1: {instruction}. Keep everything else exactly the same. {LOCAL_STYLE}"
+    return load_prompt("edit_local", instruction=instruction, style=LOCAL_STYLE)
 
 
 _local_model = None
@@ -312,83 +308,11 @@ def with_text(board: dict, lines: list[str]) -> dict:
 def make_storyboard(title: str, lines: list[str]) -> dict:
     words = script_words(lines)
     target = min(MAX_FRAMES, max(1, round(len(words) / WORDS_PER_FRAME)))
-    prompt = f"""You are storyboarding a short narrated video drawn as simple black-and-white
-stick-figure cartoons. The narration is below with every word numbered. You decide how many
-frames the video has and exactly where each one starts.
-
-Pacing: this is for Instagram Reels, so cut fast. Speech runs at about {WORDS_PER_SECOND:g} words
-per second; a frame should usually cover 4-8 words (about 1.5-3 seconds). Aim for about
-{target} frames in total. A single punchy word can get its own quick frame. No frame may
-cover more than {MAX_FRAME_WORDS} words: if a sentence is longer, split it into several frames that
-show the moment progressing (a different action, angle or detail), not the same picture again.
-
-Cut points: a new frame can start on ANY word, including mid-sentence. Start it where the
-picture should change, e.g. exactly as a key word is spoken so the image lands with it, not
-mechanically at punctuation or line breaks.
-
-Return ONLY JSON, no commentary, in this shape:
-{{"cast": "...",
-  "settings": [{{"name": "...", "look": "...", "background": "..."}}],
-  "frames": [{{"start": 0, "text": "the words this frame covers", "setting": "...", "scene": "..."}}, ...]}}
-
-Plan the world first (cast and settings), then the frames. Everything a frame shows must
-come from that world.
-
-Rules:
-- "start": the number of the word where the frame begins. The first frame starts at 0 and
-  starts strictly increase. A frame lasts until the next frame starts; the last one runs to
-  the end ({len(words) - 1}).
-- "text": the exact words the frame covers, from its start word up to the next frame's start.
-- "cast": the recurring characters (at most 3), described precisely enough to draw them
-  identically every time. The main character is the plain stick figure from the
-  reference image; tell other characters apart by a single simple feature (e.g. a cap,
-  a ponytail, taller), never by colour.
-- "settings": the places the story happens, at most 3 (one is often enough). For each:
-  - "name": a short label, e.g. "Running track".
-  - "look": the fixed layout, precise enough to draw it the same way every time: the
-    ground line and the main fixed objects, and where each sits (left, right, behind).
-  - "background": 2-3 small, simple details that appear in EVERY frame in this setting, in
-    the same place, so no frame feels empty: e.g. a small cloud top-left, a bird on a fence
-    post on the right, a wall clock. Small, and never in the bottom third. Now and then
-    they may react to the action (the bird ducks, the plant wilts), but they never vanish
-    or move to a different spot.
-- "setting": the name of this frame's setting, exactly as in "settings".
-- "scene": one or two sentences describing ONE concrete, drawable moment, as a single
-  still image: who, doing what, with which simple props or setting. Never several poses,
-  steps, a sequence, a montage or split panels in one scene ("three poses", "then", "quick
-  cuts"): if the words list or walk through several things, give each its own frame. Turn abstract words into a clear visual
-  metaphor built from the cast, their props and the setting.
-- No text, words or speech bubbles in any scene.
-- No frame covers more than {MAX_FRAME_WORDS} words. At most {MAX_FRAMES} frames.
-
-Continuity (most important):
-- The frames are one continuous story in one consistent world. Write each scene as the
-  next moment after the previous one: same setting, characters and props, unless the
-  narration gives a reason for a change.
-- Nothing appears from nowhere. Every object in a scene either belongs to its setting's
-  "look", is carried or brought in by a character, or is visibly introduced in that frame
-  and then stays in the later frames of that setting. Never suddenly add a big structure
-  (an archway, a mountain, a door, a giant object) as a metaphor; if a metaphor needs one,
-  put it in the setting's "look" from the start or pick a different metaphor.
-- Stay in a setting for a run of frames. Change setting only at a clear turn in the
-  narration, and make the change readable: e.g. a character walks into the new place, and
-  that first frame shows the new setting fully.
-- Closer or wider shots are fine, but it is still the same place: keep the background
-  details visible wherever the framing allows.
-- Before answering, reread the frames in order and fix any scene where something appears,
-  disappears or changes without a reason.
-
-Tone: sincere, with a light splash of comedy. About one frame in four gets a small visual
-gag: an exaggerated reaction, a deadpan background detail reacting, a too-literal visual
-pun, a prop misbehaving. Write the gag into the scene. Gags support the narration's point,
-never mock it or replace its meaning, and emotional or serious beats stay straight. Spread
-them across the video so it feels warm and witty, not like one long joke. A recurring
-background detail can carry a running gag.
-
-Title: {title}
-
-Narration ({len(words)} words, about {len(words) / WORDS_PER_SECOND:.0f} seconds):
-{numbered(lines)}"""
+    prompt = load_prompt(
+        "storyboard", words_per_second=f"{WORDS_PER_SECOND:g}", target_frames=target,
+        max_frame_words=MAX_FRAME_WORDS, max_frames=MAX_FRAMES, last_word=len(words) - 1,
+        title=title, n_words=len(words), seconds=f"{len(words) / WORDS_PER_SECOND:.0f}",
+        script=numbered(lines))
     text = ask_text(prompt)
     try:
         board = json.loads(text[text.index("{") : text.rindex("}") + 1])
@@ -438,22 +362,10 @@ def frame_prompt(i: int, lines: list[str], board: dict, n_prev: int, n_next: int
                    " setting and background details exactly (positions, sizes, shapes).")
     before = f'Previous frame\'s words: "{frame_text(board, lines, i - 1)}"\n' if i > 1 else ""
     after = f'Next frame\'s words: "{frame_text(board, lines, i + 1)}"\n' if i < n else ""
-    return f"""You are drawing frame {i} of {n} of a short narrated stick-figure video. Each frame
-is on screen while a stretch of the narration is spoken.
-
-STYLE: {STYLE}
-
-CAST: {board['cast']}
-
-{setting_block(board, i)}IMAGES: {images}
-
-FULL SCRIPT (context only; draw just the part between >>> and <<<):
-{marked_script(board, lines, i)}
-
-{before}THIS FRAME'S WORDS: "{frame_text(board, lines, i)}"
-{after}
-SCENE TO DRAW: {board['frames'][i - 1]['scene']}
-If the scene has a comic beat, sell it with clear, exaggerated faces and body language."""
+    return load_prompt(
+        "frame", frame=i, n_frames=n, style=STYLE, cast=board["cast"], setting=setting_block(board, i),
+        images=images, script=marked_script(board, lines, i), previous_words=before,
+        words=frame_text(board, lines, i), next_words=after, scene=board["frames"][i - 1]["scene"])
 
 
 IMAGE_EXTS = (".png", ".jpg", ".jpeg")

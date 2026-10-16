@@ -27,7 +27,7 @@ import sys
 from animate import (
     OUT, PREV_FRAMES, REFERENCE, STYLE, ask_text, backend,
     establishing_frame, find_frame, frame_prompt, frame_text, generate_image, image_cost, load_board, local_edit_prompt,
-    local_frame_prompt, read_note, run_cli, save_board,
+    load_prompt, local_frame_prompt, read_note, run_cli, save_board,
 )
 from stitch import ZOOM, settings, stitch
 
@@ -37,34 +37,9 @@ def plan_changes(request: str, lines: list[str], board: dict) -> list[dict]:
     for i, f in enumerate(board["frames"], 1):
         rows.append(f'{i:02d}. words: "{frame_text(board, lines, i)}"\n    scene: {f["scene"]}\n'
                     f'    zoom: {settings(board, i):g}')
-    prompt = f"""You turn a request for changes to a short narrated stick-figure video into a precise
-JSON edit plan. The video has {len(board["frames"])} frames, each shown while its words are
-spoken. Current state:
-
-{chr(10).join(rows)}
-
-Settings you can change per frame:
-- zoom: how far the frame slowly zooms in over its duration. Default {ZOOM:g} (= {ZOOM:.0%}).
-  0 = still; negative = zoom out. "reduce the zoom" = roughly halve it; "remove" = 0;
-  "more zoom" = roughly double it.
-
-Image changes:
-- "edit": a targeted change to the existing image (change, add, remove or restyle an
-  object; change an expression or pose). Keeps the composition. Prefer this.
-- "redraw": only when the request needs a substantially different scene or composition.
-  Then also give the new "scene" description.
-Images must stay black-and-white stick-figure line art with no text.
-
-Request: \"\"\"{request}\"\"\"
-
-Return ONLY JSON:
-{{"changes": [{{"frame": 6, "image": "edit" or "redraw" or null,
-  "instruction": "precise instruction for the image model, or null",
-  "scene": "new scene description (redraw only), or null",
-  "zoom": number or null}}]}}
-Only include frames the request is about; use null for anything not changing. Frame
-numbers refer to the numbering above; if the request names words rather than a frame
-number, use the frame whose words contain them. Never change the narration."""
+    prompt = load_prompt(
+        "edit_plan", n_frames=len(board["frames"]), frames="\n".join(rows),
+        default_zoom=f"{ZOOM:g}", default_zoom_pct=f"{ZOOM:.0%}", request=request)
     text = ask_text(prompt)
     try:
         return json.loads(text[text.index("{") : text.rindex("}") + 1])["changes"]
@@ -128,20 +103,9 @@ def edit_prompt(i: int, lines: list[str], board: dict, instruction: str, n_prev:
     refs = "Image 2 is the style and main-character reference."
     if n_prev or n_next:
         refs += f" Images 3-{2 + n_prev + n_next} are the neighbouring frames, in story order, for continuity."
-    return f"""You are editing frame {i} of {len(board["frames"])} of a short narrated stick-figure video.
-
-IMAGE 1 is the current frame. Apply ONLY this change:
-{instruction}
-
-Keep everything else exactly as it is: composition, framing, characters, poses, expressions,
-props, line weight and style. Output the complete edited frame.
-
-STYLE (the result must still match it): {STYLE}
-
-OTHER IMAGES (reference only, do not copy them): {refs}
-
-This frame's narration: "{frame_text(board, lines, i)}"
-Scene: {board['frames'][i - 1]['scene']}"""
+    return load_prompt(
+        "edit_image", frame=i, n_frames=len(board["frames"]), instruction=instruction, style=STYLE,
+        images=refs, words=frame_text(board, lines, i), scene=board["frames"][i - 1]["scene"])
 
 
 def apply(changes: list[dict], note: str, lines: list[str], board: dict) -> None:

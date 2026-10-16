@@ -119,7 +119,7 @@ Voice clips are matched to the note's text: edit a line (or `VOICE`/`STYLE` in `
 
 Composition: the image prompt asks for the subject in the middle half of the frame, with the lower third left as white space for captions and the top eighth clear for app UI.
 
-Tips: lines in the note only matter for the voice (one clip per line); the storyboard decides the images. Models, voice, delivery style, the number of previous frames fed back in, timing and zoom are constants at the top of each script.
+Tips: lines in the note only matter for the voice (one clip per line); the storyboard decides the images. All prompts sent to the models (storyboard, frame drawing, edits, voice delivery style) are plain text files in `animate/prompts/`, one per call; see the README there. Models, voice, the number of previous frames fed back in, timing and zoom are constants at the top of each script.
 
 ## Deployment
 
