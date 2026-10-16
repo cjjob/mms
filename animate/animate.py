@@ -78,11 +78,9 @@ LOCAL_STYLE = load_prompt("style_local")
 
 
 def backend() -> str:
+    """Image backend: IMAGE_BACKEND, google (default) or local."""
     load_env()
-    b = os.environ.get("IMAGE_BACKEND", "google").strip().lower()
-    if b not in ("google", "local"):
-        sys.exit(f"IMAGE_BACKEND must be 'google' or 'local', not {b!r}")
-    return b
+    return env_choice("IMAGE_BACKEND")
 
 
 def image_cost() -> float:
@@ -138,15 +136,33 @@ def local_image(prompt: str, refs: list[Path], path: Path) -> None:
     img.save(str(path), overwrite=True)
 
 
+# Settings with a fixed set of values (the first is the default), checked whenever .env is loaded
+CHOICES = {
+    "IMAGE_BACKEND": ("google", "local"),
+    "VOICE_BACKEND": ("google", "elevenlabs"),
+}
+
+
+def env_choice(key: str) -> str:
+    """The value of a CHOICES setting from the environment, or its default; exits if it's not allowed."""
+    allowed = CHOICES[key]
+    value = os.environ.get(key, "").strip().lower() or allowed[0]
+    if value not in allowed:
+        sys.exit(f"{key}={value!r} isn't valid (in .env or the shell); use one of: {', '.join(allowed)}")
+    return value
+
+
 def load_env() -> None:
-    """Minimal .env loader so we don't need python-dotenv. Values in .env override the shell."""
+    """Minimal .env loader so we don't need python-dotenv. Values in .env override the shell.
+    Then checks every CHOICES setting, so a typo'd backend fails straight away."""
     env = ROOT / ".env"
-    if not env.exists():
-        return
-    for line in env.read_text().splitlines():
-        key, sep, value = line.partition("=")
-        if sep and not key.strip().startswith("#"):
-            os.environ[key.strip()] = value.strip().strip("\"'")  # .env wins over the shell
+    if env.exists():
+        for line in env.read_text().splitlines():
+            key, sep, value = line.partition("=")
+            if sep and not key.strip().startswith("#"):
+                os.environ[key.strip()] = value.strip().strip("\"'")  # .env wins over the shell
+    for key in CHOICES:
+        env_choice(key)
 
 
 def clean(text: str) -> str:
@@ -603,6 +619,7 @@ def run_cli(fn) -> None:
     """Run fn with its output logged to logs/, turning API errors into a one-line message
     instead of the SDK's traceback."""
     start_log()
+    load_env()  # every script checks .env up front
     try:
         fn()
     except KeyboardInterrupt:

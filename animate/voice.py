@@ -27,8 +27,8 @@ import sys
 import urllib.error
 import urllib.request
 
-from animate import (OUT, get_client, load_env, load_prompt, read_note, run_cli, script_text, script_timings,
-                     script_words)
+from animate import (OUT, env_choice, get_client, load_env, load_prompt, read_note, run_cli, script_text,
+                     script_timings, script_words)
 
 # Gemini (VOICE_BACKEND=google)
 TTS_MODEL = "gemini-3.8-flash-lite-tts"  # cheapest TTS; a 45s video costs ~1p
@@ -44,10 +44,7 @@ ELEVEN_TIMEOUT = 240  # seconds
 
 def voice_backend() -> str:
     load_env()
-    b = os.environ.get("VOICE_BACKEND", "google").strip().lower()
-    if b not in ("google", "elevenlabs"):
-        sys.exit(f"VOICE_BACKEND must be 'google' or 'elevenlabs', not {b!r}")
-    return b
+    return env_choice("VOICE_BACKEND")
 
 
 def gemini_tts(text: str) -> bytes:
