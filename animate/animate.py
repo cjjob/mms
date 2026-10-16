@@ -56,8 +56,9 @@ STYLE = (
     "Draw in exactly the style of the reference image: a hand-drawn stick figure "
     "with a round head, a simple expressive face, rounded hands and feet, and clean, "
     "even, black outlines on a pure white background. Black and white only: no colour, "
-    "no grey shading, no gradients. Any props or setting are minimal and drawn in the "
-    "same line style. No text, letters, numbers, captions or speech bubbles anywhere. "
+    "no grey shading, no gradients. Props and setting are drawn simply in the same line "
+    "style, but the frame is never empty: always include the setting's small recurring "
+    "background details, kept small, off to the sides or behind the action. No text, letters, numbers, captions or speech bubbles anywhere. "
     "COMPOSITION (important): vertical 9:16 frame. Place the main subject and action "
     "in the centre of the frame, within the middle half of the height. Keep the lower "
     "third (from about 65% of the way down to the bottom) plain white or only "
@@ -100,7 +101,12 @@ def ask_text(prompt: str) -> str:
 def local_frame_prompt(i: int, board: dict, n_refs: int) -> str:
     cont = " Continue the story from image 2: same characters, same proportions." if n_refs > 1 else ""
     return (f"{LOCAL_STYLE} The main character looks exactly like the one in image 1.{cont} "
-            f"Characters: {board['cast']} Scene: {board['frames'][i - 1]['scene']}")
+            f"Characters: {board['cast']} {setting_line(board, i)}Scene: {board['frames'][i - 1]['scene']}")
+
+
+def setting_line(board: dict, i: int) -> str:
+    st = setting_of(board, i)
+    return f"Setting: {st['look']} Always in the background: {st['background']} " if st else ""
 
 
 def local_edit_prompt(instruction: str) -> str:
@@ -241,9 +247,59 @@ def clean_frames(raw: list, words: list[str]) -> list[dict]:
             s = 0
         if s <= last or s >= n:
             continue
-        out.append({"start": s, "scene": str(f["scene"]).strip()})
+        out.append({"start": s, "setting": str(f.get("setting") or "").strip(),
+                    "scene": str(f["scene"]).strip()})
         last = s
     return out[:MAX_FRAMES]
+
+
+def clean_settings(raw) -> list[dict]:
+    out = []
+    for st in raw if isinstance(raw, list) else []:
+        if isinstance(st, dict) and str(st.get("name") or "").strip():
+            out.append({k: str(st.get(k) or "").strip() for k in ("name", "look", "background")})
+    return out
+
+
+def fix_frame_settings(frames: list[dict], settings: list[dict]) -> None:
+    """Every frame names a known setting; an unknown one inherits the previous frame's."""
+    names = [st["name"] for st in settings]
+    last = names[0] if names else ""
+    for f in frames:
+        if f.get("setting") not in names:
+            f["setting"] = last
+        last = f["setting"]
+
+
+def setting_of(board: dict, i: int) -> dict | None:
+    name = board["frames"][i - 1].get("setting")
+    return next((st for st in board.get("settings", []) if st["name"] == name), None)
+
+
+def setting_block(board: dict, i: int) -> str:
+    """The SETTING section of a frame prompt ("" for old storyboards without settings)."""
+    st = setting_of(board, i)
+    if not st:
+        return ""
+    same = i > 1 and board["frames"][i - 2].get("setting") == st["name"]
+    cont = ("Same place as the previous frame: keep its layout and these background details exactly"
+            " where they were." if same else "The story arrives here in this frame: show the place clearly.")
+    return (f"SETTING ({st['name']}): {st['look']}\n"
+            f"BACKGROUND DETAILS (always in the frame, small, same place every time): {st['background']}\n"
+            f"{cont}\n\n")
+
+
+def establishing_frame(outdir: Path, board: dict, i: int, skip: list[Path]) -> Path | None:
+    """The first drawn frame in frame i's setting, if it isn't already among the refs: shows the
+    image model what this place looked like, so the background stays the same."""
+    st = setting_of(board, i)
+    if not st:
+        return None
+    for k in range(1, i):
+        if board["frames"][k - 1].get("setting") == st["name"]:
+            p = find_frame(outdir, k)
+            return p if p and p not in skip else None
+    return None
 
 
 def with_text(board: dict, lines: list[str]) -> dict:
@@ -271,7 +327,12 @@ picture should change, e.g. exactly as a key word is spoken so the image lands w
 mechanically at punctuation or line breaks.
 
 Return ONLY JSON, no commentary, in this shape:
-{{"cast": "...", "frames": [{{"start": 0, "text": "the words this frame covers", "scene": "..."}}, ...]}}
+{{"cast": "...",
+  "settings": [{{"name": "...", "look": "...", "background": "..."}}],
+  "frames": [{{"start": 0, "text": "the words this frame covers", "setting": "...", "scene": "..."}}, ...]}}
+
+Plan the world first (cast and settings), then the frames. Everything a frame shows must
+come from that world.
 
 Rules:
 - "start": the number of the word where the frame begins. The first frame starts at 0 and
@@ -282,14 +343,47 @@ Rules:
   identically every time. The main character is the plain stick figure from the
   reference image; tell other characters apart by a single simple feature (e.g. a cap,
   a ponytail, taller), never by colour.
+- "settings": the places the story happens, at most 3 (one is often enough). For each:
+  - "name": a short label, e.g. "Running track".
+  - "look": the fixed layout, precise enough to draw it the same way every time: the
+    ground line and the main fixed objects, and where each sits (left, right, behind).
+  - "background": 2-3 small, simple details that appear in EVERY frame in this setting, in
+    the same place, so no frame feels empty: e.g. a small cloud top-left, a bird on a fence
+    post on the right, a wall clock. Small, and never in the bottom third. Now and then
+    they may react to the action (the bird ducks, the plant wilts), but they never vanish
+    or move to a different spot.
+- "setting": the name of this frame's setting, exactly as in "settings".
 - "scene": one or two sentences describing ONE concrete, drawable moment, as a single
   still image: who, doing what, with which simple props or setting. Never several poses,
   steps, a sequence, a montage or split panels in one scene ("three poses", "then", "quick
   cuts"): if the words list or walk through several things, give each its own frame. Turn abstract words into a clear visual
-  metaphor. Consecutive frames should flow like one continuous story with the same
-  characters, not unrelated pictures.
+  metaphor built from the cast, their props and the setting.
 - No text, words or speech bubbles in any scene.
 - No frame covers more than {MAX_FRAME_WORDS} words. At most {MAX_FRAMES} frames.
+
+Continuity (most important):
+- The frames are one continuous story in one consistent world. Write each scene as the
+  next moment after the previous one: same setting, characters and props, unless the
+  narration gives a reason for a change.
+- Nothing appears from nowhere. Every object in a scene either belongs to its setting's
+  "look", is carried or brought in by a character, or is visibly introduced in that frame
+  and then stays in the later frames of that setting. Never suddenly add a big structure
+  (an archway, a mountain, a door, a giant object) as a metaphor; if a metaphor needs one,
+  put it in the setting's "look" from the start or pick a different metaphor.
+- Stay in a setting for a run of frames. Change setting only at a clear turn in the
+  narration, and make the change readable: e.g. a character walks into the new place, and
+  that first frame shows the new setting fully.
+- Closer or wider shots are fine, but it is still the same place: keep the background
+  details visible wherever the framing allows.
+- Before answering, reread the frames in order and fix any scene where something appears,
+  disappears or changes without a reason.
+
+Tone: sincere, with a light splash of comedy. About one frame in four gets a small visual
+gag: an exaggerated reaction, a deadpan background detail reacting, a too-literal visual
+pun, a prop misbehaving. Write the gag into the scene. Gags support the narration's point,
+never mock it or replace its meaning, and emotional or serious beats stay straight. Spread
+them across the video so it feels warm and witty, not like one long joke. A recurring
+background detail can carry a running gag.
 
 Title: {title}
 
@@ -300,15 +394,18 @@ Narration ({len(words)} words, about {len(words) / WORDS_PER_SECOND:.0f} seconds
         board = json.loads(text[text.index("{") : text.rindex("}") + 1])
         frames = clean_frames(board.get("frames"), words)
         assert frames
+        settings = clean_settings(board.get("settings"))
+        fix_frame_settings(frames, settings)
     except (ValueError, KeyError, TypeError, AttributeError, AssertionError):
         print("warning: storyboard unusable, falling back to one frame per line", file=sys.stderr)
         board = {"cast": "The stick figure from the reference image."}
+        settings = []
         frames = [{"start": s, "scene": line} for s, line in zip(line_starts(lines), lines)]
     starts = [f["start"] for f in frames] + [len(words)]
     long = [i + 1 for i, (s, e) in enumerate(zip(starts, starts[1:])) if e - s > MAX_FRAME_WORDS]
     if long:
         print(f"warning: frames {long} cover more than {MAX_FRAME_WORDS} words", file=sys.stderr)
-    return with_text({"cast": board.get("cast", ""), "frames": frames}, lines)
+    return with_text({"cast": board.get("cast", ""), "settings": settings, "frames": frames}, lines)
 
 
 def marked_script(board: dict, lines: list[str], i: int) -> str:
@@ -317,9 +414,11 @@ def marked_script(board: dict, lines: list[str], i: int) -> str:
     return " ".join([*w[:s], ">>>", *w[s:e], "<<<", *w[e:]])
 
 
-def frame_prompt(i: int, lines: list[str], board: dict, n_prev: int, n_next: int = 0) -> str:
+def frame_prompt(i: int, lines: list[str], board: dict, n_prev: int, n_next: int = 0,
+                 n_setting: int = 0) -> str:
     """Prompt for drawing frame i. Images sent with it: reference, n_prev earlier frames
-    (oldest first), then n_next later frames."""
+    (oldest first), then n_next later frames, then (n_setting=1) the first frame drawn in
+    this frame's setting."""
     n = len(board["frames"])
     images = "Image 1 is the style and main-character reference."
     if n_prev:
@@ -334,6 +433,9 @@ def frame_prompt(i: int, lines: list[str], board: dict, n_prev: int, n_next: int
                    " this frame's own moment.")
     else:
         images += " This is the opening frame."
+    if n_setting:
+        images += (f" Image {n_prev + n_next + 2} is an earlier frame in this same place: match its"
+                   " setting and background details exactly (positions, sizes, shapes).")
     before = f'Previous frame\'s words: "{frame_text(board, lines, i - 1)}"\n' if i > 1 else ""
     after = f'Next frame\'s words: "{frame_text(board, lines, i + 1)}"\n' if i < n else ""
     return f"""You are drawing frame {i} of {n} of a short narrated stick-figure video. Each frame
@@ -343,14 +445,15 @@ STYLE: {STYLE}
 
 CAST: {board['cast']}
 
-IMAGES: {images}
+{setting_block(board, i)}IMAGES: {images}
 
 FULL SCRIPT (context only; draw just the part between >>> and <<<):
 {marked_script(board, lines, i)}
 
 {before}THIS FRAME'S WORDS: "{frame_text(board, lines, i)}"
 {after}
-SCENE TO DRAW: {board['frames'][i - 1]['scene']}"""
+SCENE TO DRAW: {board['frames'][i - 1]['scene']}
+If the scene has a comic beat, sell it with clear, exaggerated faces and body language."""
 
 
 IMAGE_EXTS = (".png", ".jpg", ".jpeg")
@@ -375,8 +478,8 @@ def load_board(outdir: Path, lines: list[str]) -> dict | None:
 
 
 def save_board(outdir: Path, board: dict) -> None:
-    board = {"cast": board["cast"], "frames": board["frames"], **{k: v for k, v in board.items()
-             if k not in ("cast", "frames")}}
+    board = {"cast": board["cast"], "settings": board.get("settings", []), "frames": board["frames"],
+             **{k: v for k, v in board.items() if k not in ("cast", "settings", "frames")}}
     (outdir / "storyboard.json").write_text(json.dumps(board, indent=2))
 
 
@@ -431,8 +534,11 @@ def image_part(path: Path) -> dict:
 
 def print_storyboard(board: dict, lines: list[str], path: Path) -> None:
     print(f"\nCAST: {board['cast']}\n")
+    for st in board.get("settings", []):
+        print(f"SETTING {st['name']}: {st['look']}\n    background: {st['background']}\n")
     for i, ((s, e), f) in enumerate(zip(spans(board, lines), board["frames"]), 1):
-        print(f"{i:02d}. ~{(e - s) / WORDS_PER_SECOND:.1f}s  \"{f['text']}\"\n    -> {f['scene']}\n")
+        where = f"  [{f['setting']}]" if f.get("setting") else ""
+        print(f"{i:02d}. ~{(e - s) / WORDS_PER_SECOND:.1f}s{where}  \"{f['text']}\"\n    -> {f['scene']}\n")
     n = len(board["frames"])
     cost = f", ~${n * image_cost():.2f} in images" if image_cost() else ""
     print(f"{n} frames{cost}. saved: {path}")
@@ -495,7 +601,8 @@ def main() -> None:
             continue
 
         refs = prev[-PREV_FRAMES:]
-        prompt = frame_prompt(i, lines, board, len(refs))
+        est = [p for p in [establishing_frame(outdir, board, i, refs)] if p]
+        prompt = frame_prompt(i, lines, board, len(refs), 0, len(est))
         local_refs = [REFERENCE, *prev[-1:]]  # local: reference + previous frame only
         local_prompt = local_frame_prompt(i, board, len(local_refs))
         used = local_prompt if backend() == "local" else prompt
@@ -506,7 +613,7 @@ def main() -> None:
 
         t0 = time.monotonic()
         print(f"{time.strftime('%H:%M:%S')} {stem}: {frame_text(board, lines, i)[:60]}", flush=True)
-        prev.append(generate_image(prompt, [REFERENCE, *refs], outdir, stem, local_prompt, local_refs))
+        prev.append(generate_image(prompt, [REFERENCE, *refs, *est], outdir, stem, local_prompt, local_refs))
         print(f"           done in {time.monotonic() - t0:.0f}s", flush=True)
 
     print(f"done: {outdir}")

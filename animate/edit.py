@@ -26,7 +26,7 @@ import sys
 
 from animate import (
     OUT, PREV_FRAMES, REFERENCE, STYLE, ask_text, backend,
-    find_frame, frame_prompt, frame_text, generate_image, image_cost, load_board, local_edit_prompt,
+    establishing_frame, find_frame, frame_prompt, frame_text, generate_image, image_cost, load_board, local_edit_prompt,
     local_frame_prompt, read_note, run_cli, save_board,
 )
 from stitch import ZOOM, settings, stitch
@@ -172,10 +172,11 @@ def apply(changes: list[dict], note: str, lines: list[str], board: dict) -> None
             if c["scene"]:
                 board["frames"][i - 1]["scene"] = c["scene"]
                 save_board(outdir, board)
-            prompt = frame_prompt(i, lines, board, len(prev), len(nxt))
+            est = [p for p in [establishing_frame(outdir, board, i, prev)] if p]
+            prompt = frame_prompt(i, lines, board, len(prev), len(nxt), len(est))
             if c["instruction"]:
                 prompt += f"\n\nSPECIFIC REQUEST FOR THIS FRAME: {c['instruction']}"
-            refs = [REFERENCE, *prev, *nxt]
+            refs = [REFERENCE, *prev, *nxt, *est]
             local_refs = [REFERENCE, *prev[-1:]]
             local_prompt = local_frame_prompt(i, board, len(local_refs))
             if c["instruction"]:
