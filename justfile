@@ -41,6 +41,10 @@ voice note *args:
 listen note: (voice note)
     afplay animate/out/{{note}}/voice.wav
 
+# Model + settings of your recent ElevenLabs generations (e.g. from the website), to copy into voice.py
+eleven-history n="5":
+    .venv/bin/python animate/eleven_history.py {{n}}
+
 # Word timings for captions (forced alignment with stable-ts; downloads a ~150MB model on first run)
 align note *args:
     .venv/bin/python animate/align.py {{note}} {{args}}
