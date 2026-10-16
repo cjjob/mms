@@ -70,17 +70,17 @@ just stitch 001                # build animate/out/001.mp4 with captions
 just video 001                 # or everything in one go (each step skips work already done)
 ```
 
-The steps form two independent branches off the note, which only meet at `stitch`. So the voice can be drafted before, after or alongside the storyboard and frames (read bottom to top, like `git log --graph`):
+The steps form two independent branches off the note, which only meet at `stitch`. So the voice can be drafted before, after or alongside the storyboard and frames (read top to bottom):
 
 ```
-*   stitch        -> 001.mp4                      needs both branches
-|\
-| * align         -> words.json                   needs voice.wav
-| * voice         -> voice.wav, voice.json        `just voice` / `just listen`
-* | frames        -> frame-NN.png                 `just animate`
-* | storyboard    -> storyboard.json              `just storyboard`
-|/
 *   note          notes/001.txt                   edit it, then rerun either branch
+|\
+| * voice         -> voice.wav, voice.json        `just voice` / `just listen`
+| * align         -> words.json                   needs voice.wav
+* | storyboard    -> storyboard.json              `just storyboard`
+* | frames        -> frame-NN.png                 `just animate`
+|/
+*   stitch        -> 001.mp4                      needs both branches
 ```
 
 Editing the note invalidates both branches: `just voice` re-records, and `just stitch` refuses to build with a voiceover that doesn't match the note. The storyboard's cuts point at word positions and nothing checks them, so redo it (`--replan`) if you added or removed words.
