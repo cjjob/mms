@@ -37,6 +37,10 @@ animate note *args:
 voice note *args:
     .venv/bin/python animate/voice.py {{note}} {{args}}
 
+# Voice the script (if it changed) and play it: a cheap preview before drawing anything
+listen note: (voice note)
+    afplay animate/out/{{note}}/voice.wav
+
 # Word timings for captions (forced alignment with stable-ts; downloads a ~150MB model on first run)
 align note *args:
     .venv/bin/python animate/align.py {{note}} {{args}}
