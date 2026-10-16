@@ -56,16 +56,34 @@ This creates a `.venv/`, installs `requirements.txt` into it, copies `.env.examp
 Run:
 
 ```sh
-just storyboard 001            # 1. preview: plan the scenes and print them, no images
-just storyboard 001 --replan   #    not happy? throw the plan away and make a new one
-just animate 001 --dry-run     # 2. optional: write/print the exact image prompts, no API calls at all
-just animate 001               # 3. generate the images, using the saved storyboard
-just voice 001                 # 4. voice the whole script in one clip
-just align 001                 # 5. find when each word is spoken, for captions
-just stitch 001                # 6. build animate/out/001.mp4 with captions
+# Cheap drafts: edit the note (or storyboard) and repeat until happy
+just storyboard 001            # plan the scenes and print them, no images (a few cents)
+just storyboard 001 --replan   #   not happy? throw the plan away and make a new one
+just listen 001                # voice the whole script and play it (~1p; re-records only if the note changed)
 
-just video 001                 # or steps 3-6 in one go
+# Expensive: draw, then put it together
+just animate 001 --dry-run     # optional: write/print the exact image prompts, no API calls at all
+just animate 001               # generate the images, using the saved storyboard
+just align 001                 # find when each word is spoken (skipped for ElevenLabs)
+just stitch 001                # build animate/out/001.mp4 with captions
+
+just video 001                 # or everything in one go (each step skips work already done)
 ```
+
+The steps form two independent branches off the note, which only meet at `stitch`. So the voice can be drafted before, after or alongside the storyboard and frames (read bottom to top, like `git log --graph`):
+
+```
+*   stitch        -> 001.mp4                      needs both branches
+|\
+| * align         -> words.json                   needs voice.wav
+| * voice         -> voice.wav, voice.json        `just voice` / `just listen`
+* | frames        -> frame-NN.png                 `just animate`
+* | storyboard    -> storyboard.json              `just storyboard`
+|/
+*   note          notes/001.txt                   edit it, then rerun either branch
+```
+
+Editing the note invalidates both branches: `just voice` re-records, and `just stitch` refuses to build with a voiceover that doesn't match the note. The storyboard's cuts point at word positions and nothing checks them, so redo it (`--replan`) if you added or removed words.
 
 Fixing individual frames afterwards:
 
