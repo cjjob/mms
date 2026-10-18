@@ -4,3 +4,4 @@ animate/out/
 .venv/
 animate/models/
 logs/
+.DS_Store
