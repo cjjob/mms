@@ -6,7 +6,7 @@ the code (only the names listed below); any other braces, like the JSON example 
 
 | File | Model call | Placeholders |
 |---|---|---|
-| `storyboard.txt` | text model: plan cast, settings and frames (`just storyboard`) | `title` `script` `n_words` `seconds` `last_word` `target_frames` `words_per_second` `max_frame_words` `max_frames` |
+| `storyboard.txt` | text model: plan cast, settings, frames and camera moves (`just storyboard`) | `title` `script` `n_words` `seconds` `last_word` |
 | `frame.txt` | image model: draw one frame (`just animate`, edit redraws) | `frame` `n_frames` `style` `cast` `setting` `images` `script` `previous_words` `words` `next_words` `scene` |
 | `edit_plan.txt` | text model: turn a `just edit` request into per-frame changes | `request` `n_frames` `frames` `default_zoom` `default_zoom_pct` |
 | `edit_image.txt` | image model: targeted edit of an existing frame | `frame` `n_frames` `instruction` `style` `images` `words` `scene` |

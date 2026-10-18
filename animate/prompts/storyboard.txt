@@ -1,75 +1,35 @@
-You are storyboarding a short narrated video drawn as simple black-and-white
-stick-figure cartoons. The narration is below with every word numbered. You decide how many
-frames the video has and exactly where each one starts.
+You are storyboarding a short narrated video for Instagram Reels. The narration is below with
+every word numbered. Split it into frames (one still image each) and choose a camera move for
+each. How many frames, where they cut and what they show is up to you: make sensible choices.
 
-Pacing: this is for Instagram Reels, so cut fast. Speech runs at about {words_per_second} words
-per second; a frame should usually cover 4-8 words (about 1.5-3 seconds). Aim for about
-{target_frames} frames in total. A single punchy word can get its own quick frame. No frame may
-cover more than {max_frame_words} words: if a sentence is longer, split it into several frames that
-show the moment progressing (a different action, angle or detail), not the same picture again.
-
-Cut points: a new frame can start on ANY word, including mid-sentence. Start it where the
-picture should change, e.g. exactly as a key word is spoken so the image lands with it, not
-mechanically at punctuation or line breaks.
+Hard constraints:
+- Simple stick-figure art. The reference image of the main character is loose inspiration,
+  not a strict character template.
+- Everything is line-drawn. Coloured lines are fine, but no filled shapes.
+- Keep continuity across the whole piece: one consistent world, each frame following on from
+  the last. Don't introduce elements out of nowhere.
 
 Return ONLY JSON, no commentary, in this shape:
 {"cast": "...",
   "settings": [{"name": "...", "look": "...", "background": "..."}],
-  "frames": [{"start": 0, "text": "the words this frame covers", "setting": "...", "scene": "..."}, ...]}
+  "frames": [{"start": 0, "text": "...", "setting": "...", "scene": "...",
+              "camera": {"move": "zoom_in", "focus": {"x": 0.5, "y": 0.4}, "intensity": 0.5}}, ...]}
 
-Plan the world first (cast and settings), then the frames. Everything a frame shows must
-come from that world.
-
-Rules:
+Fields:
+- "cast": the recurring characters, described so they can be drawn the same way every time.
+- "settings": the places the story happens. "look" is the fixed layout; "background" the small
+  details that stay in place in every frame there.
 - "start": the number of the word where the frame begins. The first frame starts at 0 and
-  starts strictly increase. A frame lasts until the next frame starts; the last one runs to
-  the end ({last_word}).
-- "text": the exact words the frame covers, from its start word up to the next frame's start.
-- "cast": the recurring characters (at most 3), described precisely enough to draw them
-  identically every time. The main character is the plain stick figure from the
-  reference image; tell other characters apart by a single simple feature (e.g. a cap,
-  a ponytail, taller), never by colour.
-- "settings": the places the story happens, at most 3 (one is often enough). For each:
-  - "name": a short label, e.g. "Running track".
-  - "look": the fixed layout, precise enough to draw it the same way every time: the
-    ground line and the main fixed objects, and where each sits (left, right, behind).
-  - "background": 2-3 small, simple details that appear in EVERY frame in this setting, in
-    the same place, so no frame feels empty: e.g. a small cloud top-left, a bird on a fence
-    post on the right, a wall clock. Small, and never in the bottom third. Now and then
-    they may react to the action (the bird ducks, the plant wilts), but they never vanish
-    or move to a different spot.
-- "setting": the name of this frame's setting, exactly as in "settings".
-- "scene": one or two sentences describing ONE concrete, drawable moment, as a single
-  still image: who, doing what, with which simple props or setting. Never several poses,
-  steps, a sequence, a montage or split panels in one scene ("three poses", "then", "quick
-  cuts"): if the words list or walk through several things, give each its own frame. Turn abstract words into a clear visual
-  metaphor built from the cast, their props and the setting.
-- No text, words or speech bubbles in any scene.
-- No frame covers more than {max_frame_words} words. At most {max_frames} frames.
-
-Continuity (most important):
-- The frames are one continuous story in one consistent world. Write each scene as the
-  next moment after the previous one: same setting, characters and props, unless the
-  narration gives a reason for a change.
-- Nothing appears from nowhere. Every object in a scene either belongs to its setting's
-  "look", is carried or brought in by a character, or is visibly introduced in that frame
-  and then stays in the later frames of that setting. Never suddenly add a big structure
-  (an archway, a mountain, a door, a giant object) as a metaphor; if a metaphor needs one,
-  put it in the setting's "look" from the start or pick a different metaphor.
-- Stay in a setting for a run of frames. Change setting only at a clear turn in the
-  narration, and make the change readable: e.g. a character walks into the new place, and
-  that first frame shows the new setting fully.
-- Closer or wider shots are fine, but it is still the same place: keep the background
-  details visible wherever the framing allows.
-- Before answering, reread the frames in order and fix any scene where something appears,
-  disappears or changes without a reason.
-
-Tone: sincere, with a light splash of comedy. About one frame in four gets a small visual
-gag: an exaggerated reaction, a deadpan background detail reacting, a too-literal visual
-pun, a prop misbehaving. Write the gag into the scene. Gags support the narration's point,
-never mock it or replace its meaning, and emotional or serious beats stay straight. Spread
-them across the video so it feels warm and witty, not like one long joke. A recurring
-background detail can carry a running gag.
+  starts strictly increase; a frame lasts until the next one starts, the last runs to the end
+  ({last_word}).
+- "text": the words the frame covers.
+- "setting": this frame's setting, by its "name".
+- "scene": what the frame shows, as a single drawable still image.
+- "camera": a slow move over the frame's duration, applied to the finished image.
+  - "move": "hold", "zoom_in", "zoom_out" or "pan".
+  - "focus": rough point of interest as fractions of the frame (x 0 = left, 1 = right; y 0 = top,
+    1 = bottom). A zoom closes in on it or pulls back from it; a pan travels towards it.
+  - "intensity": optional, 0-1 (default 0.5): how strong the move is.
 
 Title: {title}
 

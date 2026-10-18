@@ -7,7 +7,8 @@ Usage:
 The narration is voice.wav, the whole script voiced in one go (or, before
 `just voice`, SILENT_SECONDS of silence per line). Frames follow the
 storyboard: each one appears as its first word is spoken (word timings from
-words.json, or estimated) and stays until the next, with a slow zoom-in. Output is
+words.json, or estimated) and stays until the next, with its storyboard camera move
+(hold / zoom in / zoom out / pan, a crop-and-scale over the frame's duration). Output is
 animate/out/<id>.mp4 at 1080x1920, 30fps, H.264/AAC (TikTok/Reels-ready),
 plus <id>.ass, the caption file that was burned in.
 
@@ -38,7 +39,9 @@ HERE = Path(__file__).resolve().parent
 W, H, FPS = 1080, 1920, 30
 TAIL = 0.4            # seconds held after the voiceover ends
 SILENT_SECONDS = 3.0  # seconds per line when there's no voiceover yet
-ZOOM = 0.05           # how far each frame zooms in over its duration (5%); 0 = still
+ZOOM = 0.05           # zoom-in for frames with no camera in the storyboard (5%); 0 = still
+MAX_ZOOM = 0.25       # zoom (or, for a pan, the crop that leaves room to move) at camera intensity 1
+INTENSITY = 0.5       # camera intensity when the storyboard doesn't give one
 LEAD = 0.08           # a frame appears this many seconds before its first word
 
 # Captions (ASS colours are &HAABBGGRR)
@@ -64,10 +67,32 @@ def frames(outdir: Path) -> list[Path]:
     return out
 
 
-def settings(board: dict | None, i: int) -> float:
-    """Zoom for frame i: per-frame override from storyboard.json, else the default."""
+def camera(board: dict | None, i: int) -> tuple[str, float, float, float]:
+    """(move, focus x, focus y, amount) for frame i. The storyboard's camera, unless `just edit`
+    set a zoom override (sign picks in/out; it keeps the focus). No camera: centred ZOOM zoom-in."""
+    frames = (board or {}).get("frames") or []
+    cam = (frames[i - 1].get("camera") if i <= len(frames) else None) or {}
+    focus = cam.get("focus") or {}
+    x, y = float(focus.get("x", 0.5)), float(focus.get("y", 0.5))
+    if cam:
+        move, amount = cam["move"], MAX_ZOOM * float(cam.get("intensity", INTENSITY))
+    else:
+        move, amount = "zoom_in", ZOOM
     ov = ((board or {}).get("overrides") or {}).get(str(i), {})
-    return float(ov.get("zoom", ZOOM))
+    if "zoom" in ov:
+        z = float(ov["zoom"])
+        move, amount = ("hold" if z == 0 else "zoom_in" if z > 0 else "zoom_out"), abs(z)
+    return move, x, y, amount
+
+
+def settings(board: dict | None, i: int) -> float:
+    """Frame i's zoom as one signed number (+ in, - out, 0 hold/pan), for `just edit`."""
+    move, _, _, amount = camera(board, i)
+    return {"zoom_in": amount, "zoom_out": -amount}.get(move, 0.0)
+
+
+def describe_camera(move: str, x: float, y: float, amount: float) -> str:
+    return "hold" if move == "hold" else f"{move} {amount:.0%} @ ({x:g}, {y:g})"
 
 
 def wav_seconds(path: Path) -> float:
@@ -75,12 +100,25 @@ def wav_seconds(path: Path) -> float:
         return w.getnframes() / w.getframerate()
 
 
-def segment(img: Path, n: int, out: Path, zoom: float = ZOOM) -> None:
-    """Render one frame as a silent clip of exactly n video frames."""
-    # Upscale 2x before zoompan to avoid jitter, fill 9:16 by cropping, then zoom towards the centre.
+def segment(img: Path, n: int, out: Path, cam: tuple = ("zoom_in", 0.5, 0.5, ZOOM)) -> None:
+    """Render one frame as a silent clip of exactly n video frames, with camera move cam
+    (from camera()): a crop that scales and/or slides linearly over the clip.
+      hold      the whole image, still
+      zoom_in   crop shrinks from the whole image to 1/(1+amount) of it, centred on the focus
+      zoom_out  the reverse
+      pan       crop fixed at 1/(1+amount), sliding from the opposite side towards the focus
+    The crop is clamped inside the image, so a focus near an edge zooms as close as it can."""
+    move, x, y, amount = cam
+    z0, z1 = {"zoom_in": (1, 1 + amount), "zoom_out": (1 + amount, 1), "pan": (1 + amount, 1 + amount)}.get(move, (1, 1))
+    (x0, y0) = (1 - x, 1 - y) if move == "pan" else (x, y)  # crop centre at the start and end, as fractions
+    t = f"on/{max(1, n - 1)}"
+    lerp = lambda a, b: f"({a:.4f}+({b - a:.4f})*{t})"
+    # Fill 9:16 by cropping (at 2x, to avoid zoompan jitter), then crop-and-scale per the move.
     vf = (
         f"scale={W * 2}:{H * 2}:force_original_aspect_ratio=increase,crop={W * 2}:{H * 2},"
-        f"zoompan=z='{1 + max(0.0, -zoom)}+{zoom}*on/{n}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
+        f"zoompan=z='{lerp(z0, z1)}'"
+        f":x='max(0,min(iw-iw/zoom,{lerp(x0, x)}*iw-iw/zoom/2))'"
+        f":y='max(0,min(ih-ih/zoom,{lerp(y0, y)}*ih-ih/zoom/2))'"
         f":d=1:s={W}x{H}:fps={FPS},format=yuv420p"
     )
     subprocess.run([
@@ -249,11 +287,10 @@ def stitch(note: str) -> None:
         tmp = Path(tmp)
         parts = []
         for i, img in enumerate(imgs, 1):
-            n, zoom = bounds[i] - bounds[i - 1], settings(board, i)
-            extra = "" if zoom == ZOOM else f"  (zoom {zoom:g})"
-            print(f"{img.stem}: {n / FPS:.1f}s{extra}")
+            n, cam = bounds[i] - bounds[i - 1], camera(board, i)
+            print(f"{img.stem}: {n / FPS:.1f}s  {describe_camera(*cam)}")
             part = tmp / f"{img.stem}.mp4"
-            segment(img, n, part, zoom)
+            segment(img, n, part, cam)
             parts.append(part)
 
         (tmp / "list.txt").write_text("".join(f"file '{p}'\n" for p in parts))
