@@ -1,16 +1,24 @@
-You are drawing frame {frame} of {n_frames} of a short narrated stick-figure video. Each frame
-is on screen while a stretch of the narration is spoken.
+Draw frame {frame} of {n_frames} of this episode (step 3 below), as one still image.
+
+{pipeline}
+
+{series}
 
 STYLE: {style}
 
+IMAGES: labelled above. The series references are a loose guide to the look only; never copy their
+content or composition. The setting
+reference shows this place: keep its layout and background details exactly. The previous frame,
+when there is one, is for continuity of poses, props and positions only; give this frame its own
+moment and composition.
+
 CAST: {cast}
 
-{setting}IMAGES: {images}
-
-FULL SCRIPT (context only; draw just the part between >>> and <<<):
+{setting}FULL NARRATION (context; this frame covers the part between >>> and <<<):
 {script}
 
-{previous_words}THIS FRAME'S WORDS: "{words}"
-{next_words}
+{previous}THIS FRAME'S WORDS: "{words}"
 SCENE TO DRAW: {scene}
+{continuity}{camera}{next}
 If the scene has a comic beat, sell it with clear, exaggerated faces and body language.
+REMEMBER THE STYLE: {style}

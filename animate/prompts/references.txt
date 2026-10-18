@@ -1,0 +1,7 @@
+# Reference images sent with every setting, frame, edit and check call, before the prompt
+# (not to the storyboard, which only needs the style in words and would copy their content).
+# One per line: <name>: <its role>. The file is animate/<name>.jpg (or .png/.jpeg).
+# Each image is labelled with its name and role, so prompts can refer to it by name.
+# The first one is the main style/character anchor (and the only one the local backend gets).
+ref_main: a loose, general guide to the look only: clean line work, simple stick figures, a little background detail. Not a template: don't reuse its content, objects, composition or exact character.
+ref_basic: a loose, general guide to the simple, friendly line quality. Style only; not one of our characters, and not content to reuse.

@@ -1,0 +1,36 @@
+Review frame {frame} of {n_frames} of this episode (step 4 below). Be strict: a frame that fails
+any check is redrawn, and an off frame in a finished video is far worse than a redraw.
+
+{pipeline}
+
+{series}
+
+STYLE: {style}
+
+IMAGES: labelled above. The series references, the setting reference, the previous frame (if
+any), and last the FRAME TO CHECK. Judge only the FRAME TO CHECK.
+
+CAST: {cast}
+CHARACTERS IN THIS FRAME: {present}
+THIS FRAME'S WORDS: "{words}"
+SCENE IT SHOULD SHOW: {scene}
+
+Checks (true = passes):
+- "one_image": a single picture, not panels, a grid or a sequence of poses.
+- "characters_on_model": the right characters, each matching their cast description; the main
+  character matches the series bible's description.
+- "style_matches": the series line style (the references are only a loose guide): clean dark
+  outlines on white, colour only in lines and small accents, no shading, gradients or large fills.
+- "original": it doesn't copy objects, scenery or composition from the series references (they
+  are a style guide, not content).
+- "wordless": no letters, words, numbers or speech bubbles anywhere.
+- "layout_ok": the top {safe_top_pct} and the caption band ({caption_top_pct} to {caption_bottom_pct}
+  of the way down) hold nothing important; the main action sits in the main band.
+- "scene_matches": it clearly shows the scene described.
+- "continuity_ok": the same place as the setting reference, and consistent with the previous frame:
+  props and characters don't appear, vanish or change without the scene saying so.
+
+Return ONLY JSON, no commentary:
+{"one_image": true, "characters_on_model": true, "style_matches": true, "original": true, "wordless": true,
+ "layout_ok": true, "scene_matches": true, "continuity_ok": true,
+ "problems": "for each failed check, one short sentence on what is wrong and where; empty if all pass"}

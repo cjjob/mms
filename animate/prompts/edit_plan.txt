@@ -1,3 +1,5 @@
+{pipeline}
+
 You turn a request for changes to a short narrated stick-figure video into a precise
 JSON edit plan. The video has {n_frames} frames, each shown while its words are
 spoken. Current state:
@@ -14,7 +16,7 @@ Image changes:
   object; change an expression or pose). Keeps the composition. Prefer this.
 - "redraw": only when the request needs a substantially different scene or composition.
   Then also give the new "scene" description.
-Images must stay black-and-white stick-figure line art with no text.
+Images must keep the series style and frame layout described above.
 
 Request: """{request}"""
 

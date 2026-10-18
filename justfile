@@ -23,6 +23,10 @@ build-live port="8000":
 storyboard note *args:
     .venv/bin/python animate/animate.py {{note}} --storyboard-only {{args}}
 
+# Check every existing frame of a note (pixel checks + judge) and print the results; draws nothing (~$0.002 a frame)
+qa note:
+    .venv/bin/python animate/animate.py {{note}} --qa-only
+
 # Generate stick-figure frames for one note, e.g. `just animate 001 --dry-run`
 animate note *args:
     .venv/bin/python animate/animate.py {{note}} {{args}}

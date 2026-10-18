@@ -12,9 +12,10 @@ Usage:
 2. Apply, touching only those frames:
    - zoom          -> stored as a per-frame override in storyboard.json (no image cost)
    - image "edit"  -> the current frame + the instruction ("change only X"), with the
-                      style reference and neighbouring frames for context
-   - image "redraw"-> the storyboard scene is updated and the frame is drawn fresh,
-                      with the frames before AND after it as references
+                      series references, setting reference and previous frame for context;
+                      the result is checked (qa.py) and the verdict printed
+   - image "redraw"-> the storyboard scene is updated and the frame is drawn fresh, like
+                      `just animate` draws it, through the same quality gate (qa.py)
    Replaced frames are kept in <id>/history/ (frame-06.v1.jpg, ...). Later frames,
    voice and word timings are never touched.
 3. Rebuild the MP4 (local, ~30s).
@@ -24,10 +25,10 @@ import argparse
 import json
 import sys
 
+import qa
 from animate import (
-    IMAGE_COST, OUT, PREV_FRAMES, REFERENCE, STYLE, ask_text,
-    establishing_frame, find_frame, frame_prompt, frame_text, generate_image, load_board,
-    load_prompt, read_note, run_cli, save_board,
+    IMAGE_COST, OUT, ask_text, find_frame, frame_images, frame_prompt, frame_text, generate_image,
+    load_board, load_prompt, prompt_record, read_note, run_cli, save_board,
 )
 from stitch import ZOOM, camera, describe_camera, settings, stitch
 
@@ -99,13 +100,10 @@ def backup(outdir, i: int) -> None:
         txt.rename(hist / f"frame-{i:02d}.v{v}.txt")
 
 
-def edit_prompt(i: int, lines: list[str], board: dict, instruction: str, n_prev: int, n_next: int) -> str:
-    refs = "Image 2 is the style and main-character reference."
-    if n_prev or n_next:
-        refs += f" Images 3-{2 + n_prev + n_next} are the neighbouring frames, in story order, for continuity."
+def edit_prompt(i: int, lines: list[str], board: dict, instruction: str) -> str:
     return load_prompt(
-        "edit_image", frame=i, n_frames=len(board["frames"]), instruction=instruction, style=STYLE,
-        images=refs, words=frame_text(board, lines, i), scene=board["frames"][i - 1]["scene"])
+        "edit_image", frame=i, n_frames=len(board["frames"]), instruction=instruction,
+        words=frame_text(board, lines, i), scene=board["frames"][i - 1]["scene"])
 
 
 def apply(changes: list[dict], note: str, lines: list[str], board: dict) -> None:
@@ -124,29 +122,28 @@ def apply(changes: list[dict], note: str, lines: list[str], board: dict) -> None
         if not c["image"]:
             continue
         i, stem = c["frame"], f"frame-{c['frame']:02d}"
-        prev = [p for k in range(max(1, i - PREV_FRAMES), i) if (p := find_frame(outdir, k))]
-        nxt = [p for p in [find_frame(outdir, i + 1)] if p]
         current = find_frame(outdir, i)
+        print(f"{stem}: {c['image']}...")
 
         if c["image"] == "edit" and current:
-            prompt = edit_prompt(i, lines, board, c["instruction"], len(prev), len(nxt))
-            refs = [current, REFERENCE, *prev, *nxt]
+            prompt = edit_prompt(i, lines, board, c["instruction"])
+            images = [("CURRENT FRAME (the one to edit)", current), *frame_images(outdir, board, i)]
+            # Generate to a temporary name first, so a failed call leaves the old frame in place.
+            new = generate_image(prompt, images, outdir, f"{stem}.new")
+            backup(outdir, i)
+            new = new.rename(outdir / f"{stem}{new.suffix}")
+            result = qa.check(board, lines, i, frame_images(outdir, board, i), new)
+            print(f"  check: {'pass' if result['passed'] else 'FAIL ' + ', '.join(result['failed'])}"
+                  + (f": {result['problems']}" if result["problems"] else ""))
         else:  # redraw (or edit with no current image)
             if c["scene"]:
                 board["frames"][i - 1]["scene"] = c["scene"]
                 save_board(outdir, board)
-            est = [p for p in [establishing_frame(outdir, board, i, prev)] if p]
-            prompt = frame_prompt(i, lines, board, len(prev), len(nxt), len(est))
+            images, prompt = frame_images(outdir, board, i), frame_prompt(i, lines, board)
             if c["instruction"]:
                 prompt += f"\n\nSPECIFIC REQUEST FOR THIS FRAME: {c['instruction']}"
-            refs = [REFERENCE, *prev, *nxt, *est]
-
-        print(f"{stem}: {c['image']}...")
-        # Generate to a temporary name first, so a failed call leaves the old frame in place.
-        new = generate_image(prompt, refs, outdir, f"{stem}.new")
-        backup(outdir, i)
-        new.rename(outdir / f"{stem}{new.suffix}")
-        (outdir / f"{stem}.txt").write_text(prompt)
+            qa.draw_checked(outdir, board, lines, i, prompt, images, before_save=lambda: backup(outdir, i))
+        (outdir / f"{stem}.txt").write_text(prompt_record(prompt, images))
 
 
 def main() -> None:
