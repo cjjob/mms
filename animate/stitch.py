@@ -31,7 +31,8 @@ import tempfile
 import wave
 from pathlib import Path
 
-from animate import OUT, find_frame, line_starts, load_board, read_note, run_cli, script_text, script_words
+from animate import (CAPTION_BOTTOM, MAX_ZOOM, OUT, find_frame, line_starts, load_board, read_note, run_cli,
+                     script_text, script_words)
 
 HERE = Path(__file__).resolve().parent
 
@@ -40,7 +41,7 @@ W, H, FPS = 1080, 1920, 30
 TAIL = 0.4            # seconds held after the voiceover ends
 SILENT_SECONDS = 3.0  # seconds per line when there's no voiceover yet
 ZOOM = 0.05           # zoom-in for frames with no camera in the storyboard (5%); 0 = still
-MAX_ZOOM = 0.25       # zoom (or, for a pan, the crop that leaves room to move) at camera intensity 1
+# MAX_ZOOM (zoom, or for a pan the crop that leaves room to move, at camera intensity 1) is in animate.py
 INTENSITY = 0.5       # camera intensity when the storyboard doesn't give one
 LEAD = 0.08           # a frame appears this many seconds before its first word
 
@@ -52,7 +53,8 @@ TEXT_COLOUR = "&H00FFFFFF"    # white
 OUTLINE_COLOUR = "&H00000000"  # black
 HIGHLIGHT = "&H0000D4FF"      # #FFD400 yellow, for the word being spoken
 OUTLINE, SHADOW = 7, 3
-MARGIN_V = 430                # px up from the bottom: clear of TikTok's caption/buttons
+MARGIN_V = round(H * (1 - CAPTION_BOTTOM))  # px up from the bottom: captions sit in the caption band
+                                            # (animate.py), above the platforms' bottom UI
 MAX_WORDS, MAX_CHARS = 5, 24  # per on-screen chunk
 POP = 115                     # spoken word scales to this % and back
 

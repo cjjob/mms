@@ -1,34 +1,47 @@
-You are storyboarding a short narrated video for Instagram Reels. The narration is below with
-every word numbered. Split it into frames (one still image each) and choose a camera move for
-each. How many frames, where they cut and what they show is up to you: make sensible choices.
+Write the storyboard (step 1 below) for one episode.
 
-Hard constraints:
-- Simple stick-figure art. The reference image of the main character is loose inspiration,
-  not a strict character template.
-- Everything is line-drawn. Coloured lines are fine, but no filled shapes.
-- Keep continuity across the whole piece: one consistent world, each frame following on from
-  the last. Don't introduce elements out of nowhere.
+{pipeline}
+
+{series}
+
+STYLE GUIDE the drawing model follows (write scenes it can draw well in this style):
+{style}
+
+YOUR TASK
+The narration is below with every word numbered. Split it into frames and give each a scene and
+a camera move. How many frames, where they cut and what they show is up to you: cut where the
+picture should change, often right on a key word.
+
+Write each "scene" for the drawing model: a short narrative description of one still moment,
+covering who is in it (by their cast names), what they are doing and feeling, the props, and
+where the main action sits in the frame. One moment per frame, never a sequence or split panels.
 
 Return ONLY JSON, no commentary, in this shape:
-{"cast": "...",
+{"cast": [{"name": "...", "look": "..."}, ...],
   "settings": [{"name": "...", "look": "...", "background": "..."}],
-  "frames": [{"start": 0, "text": "...", "setting": "...", "scene": "...",
-              "camera": {"move": "zoom_in", "focus": {"x": 0.5, "y": 0.4}, "intensity": 0.5}}, ...]}
+  "frames": [{"start": 0, "text": "...", "setting": "...", "cast": ["..."], "scene": "...",
+              "continuity": "...",
+              "camera": {"move": "zoom_in", "focus": {"x": 0.5, "y": 0.35}, "intensity": 0.5}}, ...]}
 
 Fields:
-- "cast": the recurring characters, described so they can be drawn the same way every time.
-- "settings": the places the story happens. "look" is the fixed layout; "background" the small
-  details that stay in place in every frame there.
-- "start": the number of the word where the frame begins. The first frame starts at 0 and
-  starts strictly increase; a frame lasts until the next one starts, the last runs to the end
-  ({last_word}).
+- "cast": everyone who appears, each with a short "name" and a "look" precise enough to draw them
+  identically every time. The first is the main character, with the look exactly as the series
+  bible describes it; others are told apart by one bold, simple feature.
+- "settings": the places the story happens. "look" is the fixed layout (ground line, main objects
+  and where each sits); "background" is a few small details that stay in place in every frame there.
+- "start": the number of the word where the frame begins. The first frame starts at 0 and starts
+  strictly increase; a frame lasts until the next one starts, the last runs to the end ({last_word}).
 - "text": the words the frame covers.
 - "setting": this frame's setting, by its "name".
-- "scene": what the frame shows, as a single drawable still image.
+- "cast" (in a frame): the names of the characters visible in it, at most 3.
+- "scene": what the frame shows, as described above. Keep signs, screens and objects wordless.
+- "continuity": what changed since the previous frame that the drawing must show (e.g. "Sam now
+  holds the map; the bird has flown to the fence"), or "" if nothing did.
 - "camera": a slow move over the frame's duration, applied to the finished image.
   - "move": "hold", "zoom_in", "zoom_out" or "pan".
-  - "focus": rough point of interest as fractions of the frame (x 0 = left, 1 = right; y 0 = top,
-    1 = bottom). A zoom closes in on it or pulls back from it; a pan travels towards it.
+  - "focus": the point of interest as fractions of the frame (x 0 = left, 1 = right; y 0 = top,
+    1 = bottom), inside the main band ({safe_top_pct} to {caption_top_pct} down). A zoom closes in on it or pulls back from it; a pan
+    travels towards it. The drawing model is told this point, so it puts the key detail there.
   - "intensity": optional, 0-1 (default 0.5): how strong the move is.
 
 Title: {title}

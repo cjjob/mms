@@ -1,1 +1,6 @@
-Draw in exactly the style of the reference image: a hand-drawn stick figure with a round head, a simple expressive face, rounded hands and feet, and clean, even, black outlines on a pure white background. Black and white only: no colour, no grey shading, no gradients. Props and setting are drawn simply in the same line style, but the frame is never empty: always include the setting's small recurring background details, kept small, off to the sides or behind the action. No text, letters, numbers, captions or speech bubbles anywhere. COMPOSITION (important): vertical 9:16 frame. Place the main subject and action in the centre of the frame, within the middle half of the height. Keep the lower third (from about 65% of the way down to the bottom) plain white or only unimportant ground/floor lines, because captions are overlaid there. Keep the top eighth empty too (app UI). Nothing important near the edges.
+Simple, clean hand-drawn line art on a pure white background, loosely in the spirit of the
+reference images (a general guide, not something to copy). Even,
+confident dark outlines; stick-figure characters with round heads and simple, expressive faces;
+props and places drawn with just enough lines to read at a glance. Colour is used sparingly, as
+coloured lines and small accents such as the main character's blue scarf; everything else is line
+work on white, with no shading, gradients or large filled areas. Friendly and uncluttered: few lines, each one doing work.

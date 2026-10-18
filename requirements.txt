@@ -8,4 +8,6 @@
 # animate/align.py and README.md at requirements-align.txt.
 
 google-genai>=2.25.0
+pillow  # frame quality checks (animate/qa.py)
+numpy
 stable-ts

@@ -1,0 +1,31 @@
+HOW THESE VIDEOS ARE MADE (every step gets this same brief)
+This is one episode of an ongoing series of short narrated videos for TikTok, Instagram Reels and
+YouTube Shorts. Every episode should look and feel like part of the same series.
+1. Storyboard: a text model reads the whole narration and splits it into frames, one still image
+   each. For each frame it writes a scene description and picks a camera move. It describes the
+   cast and settings once, so they are drawn the same way every time.
+2. Setting references: each setting is drawn once, empty, before any frame. Every frame in that
+   place is drawn against it, so the place stays identical.
+3. Drawing: an image model draws each frame in its own call. It gets the series reference images,
+   the setting reference, the previous frame, this brief, the series bible, the style guide, the
+   cast, the setting and the frame's scene. It never sees later frames, so every scene description
+   is complete on its own: who is there, what they are doing, which props, and where in the frame.
+4. Quality check: a reviewer compares every frame with the references and its scene. A frame that
+   is off-model, off-style, has writing in it, breaks the layout or breaks continuity is redrawn.
+5. Video: the frames are cut together over the voiceover, each on screen while its words are
+   spoken (usually 1-4 seconds). Each frame gets a slow camera move, a crop of the finished image
+   that zooms (up to {max_zoom_pct}) towards or away from its focus point, or pans towards it.
+   Captions are burned in over the caption band.
+
+FRAME LAYOUT (the storyboard plans for it, the drawing follows it, the quality check enforces it)
+- A vertical 9:16 frame.
+- Top {safe_top_pct} of the height: plain white sky or wall, nothing important (the app's
+  interface sits here).
+- Main band, from {safe_top_pct} to {caption_top_pct} of the way down and from {safe_left_pct} to
+  {safe_right_pct} across: the characters, the action and everything that matters, centred with
+  breathing room, so it stays in frame when the camera zooms in by up to {max_zoom_pct}.
+- Caption band, from {caption_top_pct} to {caption_bottom_pct} of the way down: plain white, or the
+  simple ground line the characters stand on, so the captions read clearly over it.
+- Below {caption_bottom_pct}: plain ground or white (the platform's buttons and text cover it).
+- The drawing is wordless: the narration and captions carry all the words, so signs, screens,
+  books and labels are blank and there are no speech bubbles.

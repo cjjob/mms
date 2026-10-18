@@ -1,0 +1,18 @@
+Draw the setting reference for the place "{place}" (step 2 below): the place on its own, empty of
+characters, as one still image. Every frame set here will be drawn against this image.
+
+{pipeline}
+
+{series}
+
+STYLE: {style}
+
+IMAGES: labelled above. The series references are a loose guide to the look only; draw this place,
+not theirs, and ignore their characters and objects.
+
+THE PLACE: {look}
+SMALL BACKGROUND DETAILS (always in these same spots): {background}
+
+Lay the place out so characters can stand in the main band, on a ground line near the top of the
+caption band, with the background details placed small, off to the sides or behind.
+REMEMBER THE STYLE: {style}

@@ -1,14 +1,19 @@
-You are editing frame {frame} of {n_frames} of a short narrated stick-figure video.
+Edit frame {frame} of {n_frames} of this episode, as one still image.
 
-IMAGE 1 is the current frame. Apply ONLY this change:
+{pipeline}
+
+{series}
+
+STYLE (the result must still match it): {style}
+
+IMAGES: labelled above. The one labelled CURRENT FRAME is the frame to edit; the others are
+references for style and continuity.
+
+Apply ONLY this change to the CURRENT FRAME:
 {instruction}
 
 Keep everything else exactly as it is: composition, framing, characters, poses, expressions,
 props, line weight and style. Output the complete edited frame.
-
-STYLE (the result must still match it): {style}
-
-OTHER IMAGES (reference only, do not copy them): {images}
 
 This frame's narration: "{words}"
 Scene: {scene}

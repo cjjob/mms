@@ -40,21 +40,47 @@ ROOT = HERE.parent
 sys.path.insert(0, str(ROOT))
 from build import FIELD_BY_KEY, FIELD_RE, SRC, load_config  # reuse the note format  # noqa: E402
 
-TEXT_MODEL = load_config()["text_model"]     # text: storyboard and edits; set in config.toml
-IMAGE_MODEL = "gemini-3.1-flash-lite-image"  # cheapest image model, ~$0.034 per image
-IMAGE_COST = 0.0336
-REFERENCE = HERE / "animate_reference.png"
-PREV_FRAMES = 4  # how many earlier frames to feed back in for continuity
+CONFIG = load_config()
+TEXT_MODEL = CONFIG["text_model"]    # storyboard and edit planning; set in config.toml
+IMAGE_MODEL = CONFIG["image_model"]  # draws the frames; set in config.toml
+JUDGE_MODEL = CONFIG["judge_model"]  # checks each frame (qa.py); set in config.toml
+IMAGE_COST = 0.045  # rough $ per frame incl. reference-image input (see config.toml)
+# Earlier frames fed back in. Kept at 1 on purpose: every frame is anchored to the fixed references
+# and setting image, and the previous frame only hints at poses/props. Chaining several generated
+# frames lets drift compound and makes the model copy their layout.
+PREV_FRAMES = 1
+
+# Frame layout, as fractions of the 9:16 frame: the one source of truth. The prompts are given
+# these numbers, stitch.py puts the captions in the caption band, and qa.py checks them.
+# Roughly the TikTok, Reels and Shorts safe zones at 1080x1920. (The strictest ad specs put the
+# bottom UI at ~35%, i.e. captions above 65%, but that looked too high in practice.)
+SAFE_TOP = 0.15                     # above this: app UI (y < ~288px)
+CAPTION_TOP, CAPTION_BOTTOM = 0.62, 0.72  # captions sit here (~y 1190-1380px), the usual spot for
+                                          # Reels/TikTok captions, above the account name and buttons
+SAFE_LEFT, SAFE_RIGHT = 0.11, 0.82  # x ~120-888px; the like/comment buttons are on the right
+MAX_ZOOM = 0.2                      # camera zoom at intensity 1 (stitch.py)
 REQUEST_TIMEOUT = 240  # seconds per Gemini call; normal is 30-100s, without this a stalled call hangs forever
 OUT = HERE / "out"
 
 PROMPTS = HERE / "prompts"  # one editable text file per prompt; see prompts/README.md
 
 
+pct = lambda f: f"{f:.0%}"
+LAYOUT = {"safe_top_pct": pct(SAFE_TOP), "caption_top_pct": pct(CAPTION_TOP),
+          "caption_bottom_pct": pct(CAPTION_BOTTOM), "safe_left_pct": pct(SAFE_LEFT),
+          "safe_right_pct": pct(SAFE_RIGHT), "max_zoom_pct": pct(MAX_ZOOM)}
+SHARED = ("pipeline", "series", "style")  # shared prompt files, available to every prompt as {name}
+
+
 def load_prompt(name: str, **values) -> str:
-    """Read prompts/<name>.txt and fill in its {placeholders}. Braces that aren't a placeholder
-    (e.g. the JSON example in storyboard.txt) are left alone."""
+    """Read prompts/<name>.txt and fill in its {placeholders}: the given values, the LAYOUT numbers,
+    and the SHARED files ({pipeline}, {series}, {style}), so every model call sees the same brief.
+    Braces that aren't a placeholder (e.g. the JSON example in storyboard.txt) are left alone."""
     text = (PROMPTS / f"{name}.txt").read_text().rstrip("\n")
+    values = {**LAYOUT, **values}
+    for shared in SHARED:
+        if shared != name and shared not in values and f"{{{shared}}}" in text:
+            values[shared] = load_prompt(shared)
     unknown = sorted(set(re.findall(r"\{(\w+)\}", text)) - set(values))
     if unknown:
         print(f"warning: prompts/{name}.txt has unknown placeholders {unknown}; sent as-is", file=sys.stderr)
@@ -63,10 +89,37 @@ def load_prompt(name: str, **values) -> str:
 
 STYLE = load_prompt("style")
 
+Images = list[tuple[str, Path]]  # (label, image) pairs, sent in order before the prompt
 
-def ask_text(prompt: str) -> str:
-    """One text-model call (storyboard, edit planning)."""
-    return get_client().interactions.create(model=TEXT_MODEL, input=prompt).output_text or ""
+
+def references() -> Images:
+    """The series reference images from prompts/references.txt ("<name>: <role>" per line), labelled
+    "<name>: <role>". The same images, in the same order, go first in every image and check call."""
+    out = []
+    for line in (PROMPTS / "references.txt").read_text().splitlines():
+        name, sep, role = line.partition(":")
+        name = name.strip()
+        if not sep or not name or line.lstrip().startswith("#"):
+            continue
+        path = next((p for ext in IMAGE_EXTS if (p := HERE / f"{name}{ext}").exists()), None)
+        if not path:
+            sys.exit(f"prompts/references.txt names {name}, but there's no animate/{name}.jpg/.png")
+        out.append((f"{name} (series reference): {role.strip()}", path))
+    if not out:
+        sys.exit("prompts/references.txt lists no reference images")
+    return out
+
+
+def labelled(images: Images) -> list[dict]:
+    """Interleaved input parts: a text label, then its image, for each image."""
+    return [part for i, (label, p) in enumerate(images, 1)
+            for part in ({"type": "text", "text": f"[Image {i}] {label}"}, image_part(p))]
+
+
+def ask_text(prompt: str, images: Images = (), model: str | None = None) -> str:
+    """One text-model call (storyboard, edit planning, frame checks): labelled images, then the prompt."""
+    inp = [*labelled(list(images)), {"type": "text", "text": prompt}] if images else prompt
+    return get_client().interactions.create(model=model or TEXT_MODEL, input=inp).output_text or ""
 
 
 # Settings with a fixed set of values (the first is the default), checked whenever .env is loaded
@@ -220,6 +273,11 @@ def clean_frames(raw: list, words: list[str]) -> list[dict]:
         if s <= last or s >= n:
             continue
         frame = {"start": s, "setting": str(f.get("setting") or "").strip(), "scene": str(f["scene"]).strip()}
+        present = f.get("cast")
+        if isinstance(present, list):
+            frame["cast"] = [str(c).strip() for c in present if str(c).strip()]
+        if str(f.get("continuity") or "").strip():
+            frame["continuity"] = str(f["continuity"]).strip()
         cam = clean_camera(f.get("camera"))
         if cam:
             frame["camera"] = cam
@@ -247,10 +305,62 @@ def clean_camera(raw) -> dict | None:
         except (TypeError, ValueError):
             return default
 
-    cam = {"move": move, "focus": {"x": frac(focus.get("x"), 0.5), "y": frac(focus.get("y"), 0.5)}}
+    # The focus is kept inside the main band, where the layout puts everything that matters.
+    x = min(SAFE_RIGHT, max(SAFE_LEFT, frac(focus.get("x"), 0.5)))
+    y = min(CAPTION_TOP, max(SAFE_TOP, frac(focus.get("y"), (SAFE_TOP + CAPTION_TOP) / 2)))
+    cam = {"move": move, "focus": {"x": round(x, 3), "y": round(y, 3)}}
     if raw.get("intensity") is not None:
         cam["intensity"] = frac(raw["intensity"], 0.5)
     return cam
+
+
+def clean_cast(raw) -> list[dict] | str:
+    """[{"name", "look"}]; a plain string (old storyboards) is kept as it is."""
+    if isinstance(raw, str):
+        return raw.strip()
+    out = []
+    for c in raw if isinstance(raw, list) else []:
+        if isinstance(c, dict) and str(c.get("name") or "").strip():
+            out.append({"name": str(c["name"]).strip(), "look": str(c.get("look") or "").strip()})
+    return out
+
+
+def cast_text(board: dict) -> str:
+    cast = board.get("cast") or ""
+    return cast if isinstance(cast, str) else " ".join(f"{c['name']}: {c['look']}" for c in cast)
+
+
+def present_text(board: dict, i: int) -> str:
+    names = board["frames"][i - 1].get("cast")
+    return ", ".join(names) if names else "as the scene describes"
+
+
+MAX_CAST_PER_FRAME = 3
+
+
+def verify_board(board: dict) -> list[str]:
+    """Pre-render checks on the storyboard, before any image is paid for. Fixes what it safely can
+    (drops unknown cast names) and returns a warning per problem."""
+    issues = []
+    cast = board.get("cast")
+    names = {c["name"] for c in cast} if isinstance(cast, list) else None
+    if isinstance(cast, list) and not cast:
+        issues.append("no cast")
+    if not board.get("settings"):
+        issues.append("no settings, so frames get no setting reference")
+    for i, f in enumerate(board["frames"], 1):
+        if names is not None and "cast" in f:
+            unknown = [c for c in f["cast"] if c not in names]
+            if unknown:
+                issues.append(f"frame {i}: unknown cast {unknown} dropped")
+                f["cast"] = [c for c in f["cast"] if c in names]
+            if len(f["cast"]) > MAX_CAST_PER_FRAME:
+                issues.append(f"frame {i}: {len(f['cast'])} characters (max {MAX_CAST_PER_FRAME})")
+        if len(f["scene"].split()) < 8:
+            issues.append(f"frame {i}: very short scene ({f['scene']!r})")
+        if not f.get("camera"):
+            issues.append(f"frame {i}: no valid camera, stitch uses its default")
+    return issues
 
 
 def clean_settings(raw) -> list[dict]:
@@ -289,17 +399,46 @@ def setting_block(board: dict, i: int) -> str:
             f"{cont}\n\n")
 
 
-def establishing_frame(outdir: Path, board: dict, i: int, skip: list[Path]) -> Path | None:
-    """The first drawn frame in frame i's setting, if it isn't already among the refs: shows the
-    image model what this place looked like, so the background stays the same."""
-    st = setting_of(board, i)
-    if not st:
-        return None
-    for k in range(1, i):
-        if board["frames"][k - 1].get("setting") == st["name"]:
-            p = find_frame(outdir, k)
-            return p if p and p not in skip else None
+def setting_stem(name: str) -> str:
+    return "setting-" + (re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or "place")
+
+
+def find_setting(outdir: Path, name: str) -> Path | None:
+    for ext in IMAGE_EXTS:
+        p = outdir / f"{setting_stem(name)}{ext}"
+        if p.exists():
+            return p
     return None
+
+
+def draw_settings(outdir: Path, board: dict, dry_run: bool = False) -> None:
+    """Draw each setting once, empty, before any frame (setting-<name>.png). Every frame in that
+    place is drawn against it: a clean anchor without characters, so frames don't copy a pose."""
+    for st in board.get("settings", []):
+        if find_setting(outdir, st["name"]):
+            continue
+        prompt = load_prompt("setting", place=st["name"], look=st["look"], background=st["background"])
+        (outdir / f"{setting_stem(st['name'])}.txt").write_text(prompt)
+        if dry_run:
+            print(f"\n===== {setting_stem(st['name'])} =====\n{prompt}")
+            continue
+        print(f"{setting_stem(st['name'])}: drawing the empty setting...", flush=True)
+        generate_image(prompt, references(), outdir, setting_stem(st["name"]))
+
+
+def frame_images(outdir: Path, board: dict, i: int) -> Images:
+    """What frame i is drawn against, in order: the series references, its setting reference,
+    then the previous frame (poses/props only)."""
+    images = references()
+    st = setting_of(board, i)
+    if st and (p := find_setting(outdir, st["name"])):
+        images.append((f"Setting reference for {st['name']!r}: the empty place. Keep its layout and"
+                       " background details exactly.", p))
+    for k in range(max(1, i - PREV_FRAMES), i):
+        if p := find_frame(outdir, k):
+            images.append((f"Previous frame (frame {k}): for continuity of poses, props and positions"
+                           " only; don't copy its layout.", p))
+    return images
 
 
 def with_text(board: dict, lines: list[str]) -> dict:
@@ -314,7 +453,7 @@ def make_storyboard(title: str, lines: list[str]) -> dict:
     prompt = load_prompt(
         "storyboard", last_word=len(words) - 1, title=title, n_words=len(words), seconds=f"{len(words) / WORDS_PER_SECOND:.0f}",
         script=numbered(lines))
-    text = ask_text(prompt)
+    text = ask_text(prompt)  # no reference images: in words only, so it doesn't copy their content
     try:
         board = json.loads(text[text.index("{") : text.rindex("}") + 1])
         frames = clean_frames(board.get("frames"), words)
@@ -323,10 +462,13 @@ def make_storyboard(title: str, lines: list[str]) -> dict:
         fix_frame_settings(frames, settings)
     except (ValueError, KeyError, TypeError, AttributeError, AssertionError):
         print("warning: storyboard unusable, falling back to one frame per line", file=sys.stderr)
-        board = {"cast": "The stick figure from the reference image."}
+        board = {"cast": "The main character from the series bible."}
         settings = []
         frames = [{"start": s, "scene": line} for s, line in zip(line_starts(lines), lines)]
-    return with_text({"cast": board.get("cast", ""), "settings": settings, "frames": frames}, lines)
+    board = with_text({"cast": clean_cast(board.get("cast", "")), "settings": settings, "frames": frames}, lines)
+    for issue in verify_board(board):
+        print(f"storyboard check: {issue}", file=sys.stderr)
+    return board
 
 
 def marked_script(board: dict, lines: list[str], i: int) -> str:
@@ -335,34 +477,36 @@ def marked_script(board: dict, lines: list[str], i: int) -> str:
     return " ".join([*w[:s], ">>>", *w[s:e], "<<<", *w[e:]])
 
 
-def frame_prompt(i: int, lines: list[str], board: dict, n_prev: int, n_next: int = 0,
-                 n_setting: int = 0) -> str:
-    """Prompt for drawing frame i. Images sent with it: reference, n_prev earlier frames
-    (oldest first), then n_next later frames, then (n_setting=1) the first frame drawn in
-    this frame's setting."""
+def camera_note(board: dict, i: int) -> str:
+    """Tells the drawing model where the camera move goes, so it puts the key detail there."""
+    cam = board["frames"][i - 1].get("camera")
+    if not cam or cam["move"] == "hold":
+        return ""
+    at = f"{cam['focus']['x']:.0%} across, {cam['focus']['y']:.0%} down"
+    how = {"zoom_in": f"slowly zoom in towards the point {at}; put this frame's key detail there.",
+           "zoom_out": f"start close on the point {at} and pull back to the whole frame; put the key"
+                       " detail there and let the full frame reveal the rest.",
+           "pan": f"slowly pan towards the point {at}; put this frame's key detail there."}[cam["move"]]
+    return f"CAMERA: the video will {how}\n"
+
+
+def frame_prompt(i: int, lines: list[str], board: dict) -> str:
+    """Prompt for drawing frame i (sent after frame_images())."""
     n = len(board["frames"])
-    images = "Image 1 is the style and main-character reference."
-    if n_prev:
-        images += (f" Images 2-{n_prev + 1} are the frames that come just before this one, oldest first;"
-                   " continue naturally from the last of them.")
-    if n_next:
-        k = n_prev + 2
-        images += f" Image {k}{'-' + str(k + n_next - 1) if n_next > 1 else ''} comes just after this one; lead into it."
-    if n_prev or n_next:
-        images += (" Keep the same characters, proportions and setting where it makes sense, so the"
-                   " frames play as one continuous animation. Do not copy a neighbouring frame; show"
-                   " this frame's own moment.")
-    else:
-        images += " This is the opening frame."
-    if n_setting:
-        images += (f" Image {n_prev + n_next + 2} is an earlier frame in this same place: match its"
-                   " setting and background details exactly (positions, sizes, shapes).")
-    before = f'Previous frame\'s words: "{frame_text(board, lines, i - 1)}"\n' if i > 1 else ""
-    after = f'Next frame\'s words: "{frame_text(board, lines, i + 1)}"\n' if i < n else ""
+    f = board["frames"][i - 1]
+    neighbour = lambda k, what: (f'{what}: "{frame_text(board, lines, k)}" - {board["frames"][k - 1]["scene"]}\n'
+                                 if 1 <= k <= n else "")
+    continuity = f"CHANGED SINCE THE PREVIOUS FRAME: {f['continuity']}\n" if f.get("continuity") else ""
     return load_prompt(
-        "frame", frame=i, n_frames=n, style=STYLE, cast=board["cast"], setting=setting_block(board, i),
-        images=images, script=marked_script(board, lines, i), previous_words=before,
-        words=frame_text(board, lines, i), next_words=after, scene=board["frames"][i - 1]["scene"])
+        "frame", frame=i, n_frames=n, cast=cast_text(board), setting=setting_block(board, i),
+        script=marked_script(board, lines, i), previous=neighbour(i - 1, "PREVIOUS FRAME"),
+        words=frame_text(board, lines, i), scene=f["scene"], continuity=continuity,
+        camera=camera_note(board, i), next=neighbour(i + 1, "NEXT FRAME (drawn after this one)"))
+
+
+def prompt_record(prompt: str, images: Images) -> str:
+    """What frame-NN.txt saves: the images sent (in order) and the prompt."""
+    return "".join(f"[Image {k}] {label}  ({p.name})\n" for k, (label, p) in enumerate(images, 1)) + "\n" + prompt
 
 
 IMAGE_EXTS = (".png", ".jpg", ".jpeg")
@@ -392,11 +536,13 @@ def save_board(outdir: Path, board: dict) -> None:
     (outdir / "storyboard.json").write_text(json.dumps(board, indent=2))
 
 
-def generate_image(prompt: str, refs: list[Path], outdir: Path, stem: str) -> Path:
-    """One image-model call: prompt + reference images in order. Saves outdir/stem.<ext>."""
+def generate_image(prompt: str, images: Images, outdir: Path, stem: str) -> Path:
+    """One image-model call: the labelled images (references first), then the prompt; a fresh,
+    stateless call every time. Saves outdir/stem.<ext>. The aspect ratio is always set explicitly:
+    otherwise the output takes the shape of the last input image."""
     r = get_client().interactions.create(
         model=IMAGE_MODEL,
-        input=[{"type": "text", "text": prompt}, *map(image_part, refs)],
+        input=[*labelled(images), {"type": "text", "text": prompt}],
         response_format={"type": "image", "aspect_ratio": "9:16", "image_size": "1K"},
     )
     img = r.output_image
@@ -436,7 +582,7 @@ def image_part(path: Path) -> dict:
 
 
 def print_storyboard(board: dict, lines: list[str], path: Path) -> None:
-    print(f"\nCAST: {board['cast']}\n")
+    print(f"\nCAST: {cast_text(board)}\n")
     for st in board.get("settings", []):
         print(f"SETTING {st['name']}: {st['look']}\n    background: {st['background']}\n")
     for i, ((s, e), f) in enumerate(zip(spans(board, lines), board["frames"]), 1):
@@ -444,9 +590,14 @@ def print_storyboard(board: dict, lines: list[str], path: Path) -> None:
         cam = f.get("camera")
         cam = (f"  {cam['move']} @ ({cam['focus']['x']:g}, {cam['focus']['y']:g})"
                + (f" x{cam['intensity']:g}" if "intensity" in cam else "")) if cam else ""
-        print(f"{i:02d}. ~{(e - s) / WORDS_PER_SECOND:.1f}s{where}{cam}  \"{f['text']}\"\n    -> {f['scene']}\n")
-    n = len(board["frames"])
-    print(f"{n} frames, ~${n * IMAGE_COST:.2f} in images. saved: {path}")
+        who = f"  ({', '.join(f['cast'])})" if f.get("cast") else ""
+        print(f"{i:02d}. ~{(e - s) / WORDS_PER_SECOND:.1f}s{where}{cam}{who}  \"{f['text']}\"\n    -> {f['scene']}\n"
+              + (f"    changed: {f['continuity']}\n" if f.get("continuity") else ""))
+    n = len(board["frames"]) + len(board.get("settings", []))
+    print(f"{len(board['frames'])} frames + {len(board.get('settings', []))} setting images,"
+          f" ~${n * IMAGE_COST:.2f} before any redraws. saved: {path}")
+    for issue in verify_board(board):
+        print(f"storyboard check: {issue}")
 
 
 def main() -> None:
@@ -456,6 +607,9 @@ def main() -> None:
     ap.add_argument("--storyboard-only", action="store_true",
                     help="generate (or reuse) the storyboard, print it, and stop before images")
     ap.add_argument("--replan", action="store_true", help="regenerate storyboard.json even if it exists")
+    ap.add_argument("--no-qa", action="store_true", help="skip the per-frame quality check and redraws")
+    ap.add_argument("--qa-only", action="store_true",
+                    help="check the existing frames and report; draws nothing (for calibrating)")
     args = ap.parse_args()
 
     title, lines = read_note(args.note)
@@ -471,7 +625,8 @@ def main() -> None:
     elif args.dry_run:
         sys.exit(f"no storyboard yet; run `just storyboard {args.note}` first (it's ~free)")
     else:
-        stale = sorted(p for p in outdir.glob("frame-*") if p.is_file())
+        stale = sorted(p for p in [*outdir.glob("frame-*"), *outdir.glob("setting-*"), *outdir.glob("qa.json")]
+                       if p.is_file())
         if stale:  # images from the old plan don't match the new one
             k = 1
             while (outdir / "history" / f"before-replan-{k}").exists():
@@ -491,32 +646,39 @@ def main() -> None:
         print_storyboard(board, lines, board_path)
         return
 
+    import qa  # here, so storyboard previews don't need Pillow
+
+    if args.qa_only:
+        qa.report(outdir, board, lines)
+        return
+
     n = len(board["frames"])
     todo = sum(1 for i in range(1, n + 1) if not find_frame(outdir, i))
-    print(f"{n} frames, {todo} to generate (~${todo * IMAGE_COST:.2f})")
+    todo += sum(1 for st in board.get("settings", []) if not find_setting(outdir, st["name"]))
+    print(f"{n} frames, {todo} images to generate (~${todo * IMAGE_COST:.2f} before any redraws)")
 
-    prev: list[Path] = []
+    draw_settings(outdir, board, args.dry_run)
     for i in range(1, n + 1):
         stem = f"frame-{i:02d}"
-        existing = find_frame(outdir, i)
-        if existing:
+        if find_frame(outdir, i):
             print(f"{stem}: exists, skipping")
-            prev.append(existing)
             continue
-
-        refs = prev[-PREV_FRAMES:]
-        est = [p for p in [establishing_frame(outdir, board, i, refs)] if p]
-        prompt = frame_prompt(i, lines, board, len(refs), 0, len(est))
-        (outdir / f"{stem}.txt").write_text(prompt)
+        images, prompt = frame_images(outdir, board, i), frame_prompt(i, lines, board)
+        (outdir / f"{stem}.txt").write_text(prompt_record(prompt, images))
         if args.dry_run:
-            print(f"\n===== {stem} (+ reference + {len(refs)} previous) =====\n{prompt}")
+            print(f"\n===== {stem} =====\n{prompt_record(prompt, images)}")
             continue
 
         t0 = time.monotonic()
         print(f"{time.strftime('%H:%M:%S')} {stem}: {frame_text(board, lines, i)[:60]}", flush=True)
-        prev.append(generate_image(prompt, [REFERENCE, *refs, *est], outdir, stem))
+        if args.no_qa:
+            generate_image(prompt, images, outdir, stem)
+        else:
+            qa.draw_checked(outdir, board, lines, i, prompt, images)
         print(f"           done in {time.monotonic() - t0:.0f}s", flush=True)
 
+    if not args.dry_run and not args.no_qa:
+        qa.summary(outdir, board)
     print(f"done: {outdir}")
 
 
