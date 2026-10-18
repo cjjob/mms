@@ -34,20 +34,35 @@ import sys
 import urllib.error
 import urllib.request
 
-from animate import (OUT, env_choice, get_client, load_env, load_prompt, read_note, run_cli, script_text,
-                     script_timings, script_words)
+from animate import (
+    OUT,
+    env_choice,
+    get_client,
+    load_env,
+    load_prompt,
+    read_note,
+    run_cli,
+    script_text,
+    script_timings,
+    script_words,
+)
 
 # Gemini (VOICE_BACKEND=google)
 TTS_MODEL = "gemini-3.8-flash-lite-tts"  # cheapest TTS; a 45s video costs ~1p
 VOICE = "Sulafat"  # "warm"; full list in Google's speech-generation docs
-STYLE = load_prompt("voice_style")  # delivery style; editing it re-records (Gemini only)
+STYLE = load_prompt(
+    "voice_style"
+)  # delivery style; editing it re-records (Gemini only)
 
 # ElevenLabs (VOICE_BACKEND=elevenlabs)
 ELEVEN_VOICE = "EST9Ui6982FZPSi7gCHi"
 ELEVEN_MODEL = "eleven_v4_exp"  # what the website used (`just eleven-history`); if the API rejects it, use "eleven_v4"
-ELEVEN_SETTINGS = {"stability": 0.5, "similarity_boost": 0.7}  # from the website take; e.g. add "speed": 1.1
+ELEVEN_SETTINGS = {
+    "stability": 0.5,
+    "similarity_boost": 0.7,
+}  # from the website take; e.g. add "speed": 1.1
 # (the website's "similarity" is the API's "similarity_boost"; its text_boost/focus aren't in the API)
-ELEVEN_SEED = None  # e.g. 123456789 to pin a take you liked (see voice.json "seed_used"); None = random
+ELEVEN_SEED = 314271828133769420  # e.g. 123456789 to pin a take you liked (see voice.json "seed_used"); None = random
 ELEVEN_TIMEOUT = 240  # seconds
 
 
@@ -59,14 +74,18 @@ def voice_backend() -> str:
 def gemini_tts(text: str) -> bytes:
     r = get_client().interactions.create(
         model=TTS_MODEL,
-        input=[{
-            "type": "user_input",
-            "content": [{
-                "type": "text",
-                "text": text,
-                "annotations": [{"type": "speech_metadata", "style": STYLE}],
-            }],
-        }],
+        input=[
+            {
+                "type": "user_input",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": text,
+                        "annotations": [{"type": "speech_metadata", "style": STYLE}],
+                    }
+                ],
+            }
+        ],
         response_format={"type": "audio"},  # WAV, 24 kHz mono
         generation_config={"speech_config": [{"voice": VOICE}]},
     )
@@ -85,24 +104,37 @@ def eleven_tts(text: str, seed: int) -> tuple[bytes, list[list]]:
         body["voice_settings"] = ELEVEN_SETTINGS
     req = urllib.request.Request(
         f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVEN_VOICE}/with-timestamps?output_format=wav_24000",
-        data=json.dumps(body).encode(), method="POST",
+        data=json.dumps(body).encode(),
+        method="POST",
         headers={"xi-api-key": key, "Content-Type": "application/json"},
     )
     try:
         with urllib.request.urlopen(req, timeout=ELEVEN_TIMEOUT) as resp:
             r = json.load(resp)
     except urllib.error.HTTPError as e:
-        sys.exit(f"ElevenLabs error {e.code}: {e.read().decode(errors='replace')[:500]}")
+        sys.exit(
+            f"ElevenLabs error {e.code}: {e.read().decode(errors='replace')[:500]}"
+        )
     a = r.get("alignment") or {}
-    chars = [list(x) for x in zip(a.get("characters", []), a.get("character_start_times_seconds", []),
-                                  a.get("character_end_times_seconds", []))]
+    chars = [
+        list(x)
+        for x in zip(
+            a.get("characters", []),
+            a.get("character_start_times_seconds", []),
+            a.get("character_end_times_seconds", []),
+        )
+    ]
     return base64.b64decode(r["audio_base64"]), chars
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("note", help="note ID, e.g. 001")
-    ap.add_argument("--retake", action="store_true", help="re-record even if nothing changed")
+    ap.add_argument(
+        "--retake", action="store_true", help="re-record even if nothing changed"
+    )
     args = ap.parse_args()
 
     backend = voice_backend()
@@ -111,21 +143,50 @@ def main() -> None:
     outdir = OUT / args.note
     outdir.mkdir(parents=True, exist_ok=True)
     if backend == "elevenlabs":
-        made_from = {"text": text, "backend": backend, "voice": ELEVEN_VOICE, "model": ELEVEN_MODEL,
-                     "settings": ELEVEN_SETTINGS, "seed": ELEVEN_SEED}
+        made_from = {
+            "text": text,
+            "backend": backend,
+            "voice": ELEVEN_VOICE,
+            "model": ELEVEN_MODEL,
+            "settings": ELEVEN_SETTINGS,
+            "seed": ELEVEN_SEED,
+        }
     else:
-        made_from = {"text": text, "backend": backend, "voice": VOICE, "style": STYLE, "model": TTS_MODEL}
-    print(f"{args.note}: {title!r}, {len(lines)} lines, {len(text.split())} words, "
-          f"{backend} voice {made_from['voice']}")
+        made_from = {
+            "text": text,
+            "backend": backend,
+            "voice": VOICE,
+            "style": STYLE,
+            "model": TTS_MODEL,
+        }
+    print(
+        f"{args.note}: {title!r}, {len(lines)} lines, {len(text.split())} words, "
+        f"{backend} voice {made_from['voice']}"
+    )
 
-    path, manifest_path, words_path = outdir / "voice.wav", outdir / "voice.json", outdir / "words.json"
+    path, manifest_path, words_path = (
+        outdir / "voice.wav",
+        outdir / "voice.json",
+        outdir / "words.json",
+    )
     manifest = json.loads(manifest_path.read_text()) if manifest_path.exists() else {}
-    if path.exists() and not args.retake and {k: v for k, v in manifest.items() if k != "seed_used"} == made_from:
-        print(f"{path.name}: up to date, skipping" + (f" (seed {manifest['seed_used']})" if "seed_used" in manifest else ""))
+    if (
+        path.exists()
+        and not args.retake
+        and {k: v for k, v in manifest.items() if k != "seed_used"} == made_from
+    ):
+        print(
+            f"{path.name}: up to date, skipping"
+            + (f" (seed {manifest['seed_used']})" if "seed_used" in manifest else "")
+        )
         return
     if args.retake and backend == "elevenlabs" and ELEVEN_SEED is not None:
-        print(f"note: ELEVEN_SEED is pinned to {ELEVEN_SEED}, so a retake will likely sound the same")
-    print(f"{path.name} ({'changed' if path.exists() else 'new'}): recording the whole script...")
+        print(
+            f"note: ELEVEN_SEED is pinned to {ELEVEN_SEED}, so a retake will likely sound the same"
+        )
+    print(
+        f"{path.name} ({'changed' if path.exists() else 'new'}): recording the whole script..."
+    )
     if backend == "elevenlabs":
         seed = ELEVEN_SEED if ELEVEN_SEED is not None else random.randrange(2**32)
         print(f"seed {seed}")
@@ -133,7 +194,9 @@ def main() -> None:
         audio, chars = eleven_tts(text, seed)
         path.write_bytes(audio)
         if chars:  # written after the WAV, so align.py sees it as up to date
-            words_path.write_text(json.dumps(script_timings(script_words(lines), chars)))
+            words_path.write_text(
+                json.dumps(script_timings(script_words(lines), chars))
+            )
             print(f"{words_path.name}: word timings from ElevenLabs")
     else:
         path.write_bytes(gemini_tts(text))
