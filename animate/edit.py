@@ -25,9 +25,9 @@ import json
 import sys
 
 from animate import (
-    OUT, PREV_FRAMES, REFERENCE, STYLE, ask_text, backend,
-    establishing_frame, find_frame, frame_prompt, frame_text, generate_image, image_cost, load_board, local_edit_prompt,
-    load_prompt, local_frame_prompt, read_note, run_cli, save_board,
+    IMAGE_COST, OUT, PREV_FRAMES, REFERENCE, STYLE, ask_text,
+    establishing_frame, find_frame, frame_prompt, frame_text, generate_image, load_board,
+    load_prompt, read_note, run_cli, save_board,
 )
 from stitch import ZOOM, camera, describe_camera, settings, stitch
 
@@ -131,7 +131,6 @@ def apply(changes: list[dict], note: str, lines: list[str], board: dict) -> None
         if c["image"] == "edit" and current:
             prompt = edit_prompt(i, lines, board, c["instruction"], len(prev), len(nxt))
             refs = [current, REFERENCE, *prev, *nxt]
-            local_prompt, local_refs = local_edit_prompt(c["instruction"]), [current, REFERENCE]
         else:  # redraw (or edit with no current image)
             if c["scene"]:
                 board["frames"][i - 1]["scene"] = c["scene"]
@@ -141,17 +140,13 @@ def apply(changes: list[dict], note: str, lines: list[str], board: dict) -> None
             if c["instruction"]:
                 prompt += f"\n\nSPECIFIC REQUEST FOR THIS FRAME: {c['instruction']}"
             refs = [REFERENCE, *prev, *nxt, *est]
-            local_refs = [REFERENCE, *prev[-1:]]
-            local_prompt = local_frame_prompt(i, board, len(local_refs))
-            if c["instruction"]:
-                local_prompt += f" {c['instruction']}"
 
         print(f"{stem}: {c['image']}...")
         # Generate to a temporary name first, so a failed call leaves the old frame in place.
-        new = generate_image(prompt, refs, outdir, f"{stem}.new", local_prompt, local_refs)
+        new = generate_image(prompt, refs, outdir, f"{stem}.new")
         backup(outdir, i)
         new.rename(outdir / f"{stem}{new.suffix}")
-        (outdir / f"{stem}.txt").write_text(local_prompt if backend() == "local" else prompt)
+        (outdir / f"{stem}.txt").write_text(prompt)
 
 
 def main() -> None:
@@ -181,7 +176,7 @@ def main() -> None:
 
     n_images = sum(1 for c in changes if c["image"])
     print(f"\n{describe(changes, board)}\n")
-    cost = f" (~${n_images * image_cost():.2f})" if n_images and image_cost() else ""
+    cost = f" (~${n_images * IMAGE_COST:.2f})" if n_images else ""
     if not args.yes and input(f"apply{cost}? [y/N] ").strip().lower() not in ("y", "yes"):
         sys.exit("cancelled")
 

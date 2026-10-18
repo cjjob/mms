@@ -24,10 +24,6 @@ Existing frames are skipped. To change individual frames afterwards, use edit.py
 (`just edit` / `just frame`).
 
 Needs: pip install -r requirements.txt, and GOOGLE_API_KEY in .env.
-
-Images: set IMAGE_BACKEND=local (in .env or the shell) to draw frames on this
-Mac with FLUX.2 klein 4B via mflux instead of Gemini. One-time setup:
-`just setup-local`. Text (storyboard, edit planning) always uses Gemini.
 """
 
 import argparse
@@ -68,77 +64,13 @@ def load_prompt(name: str, **values) -> str:
 STYLE = load_prompt("style")
 
 
-# ---- local image backend (IMAGE_BACKEND=local) ----
-LOCAL_IMAGE_MODEL = HERE / "models" / "flux2-klein-4b-q4"  # made by `just setup-local`
-LOCAL_W, LOCAL_H = 576, 1024  # 9:16, multiples of 16; upscaled to 1080x1920 by stitch
-LOCAL_STEPS = 4               # klein is distilled for 4 steps
-# Small local models follow short, concrete prompts best. This describes the look;
-# swap animate_reference.png for a drawing of your own character to set it.
-LOCAL_STYLE = load_prompt("style_local")
-
-
-def backend() -> str:
-    """Image backend: IMAGE_BACKEND, google (default) or local."""
-    load_env()
-    return env_choice("IMAGE_BACKEND")
-
-
-def image_cost() -> float:
-    return 0.0 if backend() == "local" else IMAGE_COST
-
-
 def ask_text(prompt: str) -> str:
-    """One text-model call (storyboard, edit planning). Always Gemini: see the README."""
+    """One text-model call (storyboard, edit planning)."""
     return get_client().interactions.create(model=TEXT_MODEL, input=prompt).output_text or ""
-
-
-def local_frame_prompt(i: int, board: dict, n_refs: int) -> str:
-    cont = " Continue the story from image 2: same characters, same proportions." if n_refs > 1 else ""
-    return load_prompt("frame_local", style=LOCAL_STYLE, continue_from_previous=cont, cast=board["cast"],
-                       setting=setting_line(board, i), scene=board["frames"][i - 1]["scene"])
-
-
-def setting_line(board: dict, i: int) -> str:
-    st = setting_of(board, i)
-    return f"Setting: {st['look']} Always in the background: {st['background']} " if st else ""
-
-
-def local_edit_prompt(instruction: str) -> str:
-    return load_prompt("edit_local", instruction=instruction, style=LOCAL_STYLE)
-
-
-_local_model = None
-
-
-def local_image(prompt: str, refs: list[Path], path: Path) -> None:
-    global _local_model
-    try:
-        from mflux.models.common.config import ModelConfig
-        from mflux.models.flux2.variants import Flux2KleinEdit
-    except ImportError:
-        sys.exit("mflux not installed: just setup-local")
-    if _local_model is None:
-        print("loading FLUX.2 klein 4B...")
-        if LOCAL_IMAGE_MODEL.exists():
-            kw = {"model_path": str(LOCAL_IMAGE_MODEL)}
-        else:  # not saved yet: download (~15GB, once) and quantize on every load
-            print(f"  ({LOCAL_IMAGE_MODEL} not found, quantizing on load; `just setup-local` makes this faster)")
-            kw = {"quantize": 4}
-        _local_model = Flux2KleinEdit(model_config=ModelConfig.flux2_klein_4b(), **kw)
-    img = _local_model.generate_image(
-        seed=int.from_bytes(os.urandom(4), "big"),
-        prompt=prompt,
-        image_paths=[str(r) for r in refs],
-        num_inference_steps=LOCAL_STEPS,
-        width=LOCAL_W,
-        height=LOCAL_H,
-    )
-    img.save(str(path), overwrite=True)
 
 
 # Settings with a fixed set of values (the first is the default), checked whenever .env is loaded
 CHOICES = {
-    "IMAGE_BACKEND": ("google", "local"),
     "VOICE_BACKEND": ("google", "elevenlabs"),
 }
 
@@ -460,14 +392,8 @@ def save_board(outdir: Path, board: dict) -> None:
     (outdir / "storyboard.json").write_text(json.dumps(board, indent=2))
 
 
-def generate_image(prompt: str, refs: list[Path], outdir: Path, stem: str,
-                   local_prompt: str | None = None, local_refs: list[Path] | None = None) -> Path:
-    """One image-model call: prompt + reference images in order. Saves outdir/stem.<ext>.
-    The local backend uses local_prompt/local_refs (shorter, fewer images) when given."""
-    if backend() == "local":
-        path = outdir / f"{stem}.png"
-        local_image(local_prompt or prompt, local_refs if local_refs is not None else refs[:2], path)
-        return path
+def generate_image(prompt: str, refs: list[Path], outdir: Path, stem: str) -> Path:
+    """One image-model call: prompt + reference images in order. Saves outdir/stem.<ext>."""
     r = get_client().interactions.create(
         model=IMAGE_MODEL,
         input=[{"type": "text", "text": prompt}, *map(image_part, refs)],
@@ -520,8 +446,7 @@ def print_storyboard(board: dict, lines: list[str], path: Path) -> None:
                + (f" x{cam['intensity']:g}" if "intensity" in cam else "")) if cam else ""
         print(f"{i:02d}. ~{(e - s) / WORDS_PER_SECOND:.1f}s{where}{cam}  \"{f['text']}\"\n    -> {f['scene']}\n")
     n = len(board["frames"])
-    cost = f", ~${n * image_cost():.2f} in images" if image_cost() else ""
-    print(f"{n} frames{cost}. saved: {path}")
+    print(f"{n} frames, ~${n * IMAGE_COST:.2f} in images. saved: {path}")
 
 
 def main() -> None:
@@ -568,8 +493,7 @@ def main() -> None:
 
     n = len(board["frames"])
     todo = sum(1 for i in range(1, n + 1) if not find_frame(outdir, i))
-    where = f"~${todo * image_cost():.2f}" if image_cost() else "local"
-    print(f"{n} frames, {todo} to generate ({where})")
+    print(f"{n} frames, {todo} to generate (~${todo * IMAGE_COST:.2f})")
 
     prev: list[Path] = []
     for i in range(1, n + 1):
@@ -583,17 +507,14 @@ def main() -> None:
         refs = prev[-PREV_FRAMES:]
         est = [p for p in [establishing_frame(outdir, board, i, refs)] if p]
         prompt = frame_prompt(i, lines, board, len(refs), 0, len(est))
-        local_refs = [REFERENCE, *prev[-1:]]  # local: reference + previous frame only
-        local_prompt = local_frame_prompt(i, board, len(local_refs))
-        used = local_prompt if backend() == "local" else prompt
-        (outdir / f"{stem}.txt").write_text(used)
+        (outdir / f"{stem}.txt").write_text(prompt)
         if args.dry_run:
-            print(f"\n===== {stem} (+ reference + {len(refs)} previous) =====\n{used}")
+            print(f"\n===== {stem} (+ reference + {len(refs)} previous) =====\n{prompt}")
             continue
 
         t0 = time.monotonic()
         print(f"{time.strftime('%H:%M:%S')} {stem}: {frame_text(board, lines, i)[:60]}", flush=True)
-        prev.append(generate_image(prompt, [REFERENCE, *refs, *est], outdir, stem, local_prompt, local_refs))
+        prev.append(generate_image(prompt, [REFERENCE, *refs, *est], outdir, stem))
         print(f"           done in {time.monotonic() - t0:.0f}s", flush=True)
 
     print(f"done: {outdir}")

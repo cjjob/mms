@@ -1,1 +1,0 @@
-{style} The main character looks exactly like the one in image 1.{continue_from_previous} Characters: {cast} {setting}Scene: {scene}
