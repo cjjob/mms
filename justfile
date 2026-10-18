@@ -11,12 +11,6 @@ setup:
     @ffmpeg -hide_banner -filters 2>/dev/null | grep -q " ass " || echo "ffmpeg lacks libass (needed for captions): brew install ffmpeg-full && brew unlink ffmpeg && brew link --force --overwrite ffmpeg-full"
     @echo "Done. Fill in API keys in .env if you haven't already."
 
-# One-time setup for IMAGE_BACKEND=local: mflux + FLUX.2 klein 4B saved at 4-bit (~15GB download once)
-setup-local:
-    .venv/bin/pip install -r requirements-local.txt
-    test -d animate/models/flux2-klein-4b-q4 || .venv/bin/mflux-save --model flux2-klein-4b --quantize 4 --path animate/models/flux2-klein-4b-q4
-    @echo "Done. Set IMAGE_BACKEND=local in .env (or prefix a command with it) to use it."
-
 # Build the site once
 build:
     python3 build.py

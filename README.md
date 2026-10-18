@@ -40,7 +40,7 @@ Styling lives in `wiki_html/style.css` (black background, white monospace type, 
 | Step | Script | Model | Cost (note 001, ~2 min) |
 |---|---|---|---|
 | Storyboard | `animate.py --storyboard-only` | `text_model` in `config.toml` (currently `gemini-4-argon`) | a few cents |
-| Frames | `animate.py` | `gemini-3.1-flash-lite-image` (or local, see below) | ~$0.034/image; ~40-65 frames, ~$1.35-2.20 |
+| Frames | `animate.py` | `gemini-3.1-flash-lite-image` | ~$0.034/image; ~40-65 frames, ~$1.35-2.20 |
 | Voiceover | `voice.py` | `gemini-3.8-flash-lite-tts` (or ElevenLabs, see below) | ~1p (ElevenLabs: credits per character) |
 | Word timings | `align.py` | Whisper `base.en` via stable-ts, local | free |
 | Stitch | `stitch.py` | ffmpeg, local | free |
@@ -103,17 +103,6 @@ Replaced frames go to `<id>/history/frame-NN.vN.*`; to undo, copy one back over 
 
 The storyboard step is the cheap one to iterate on: check the cut points and that every frame has a sensible, drawable scene before paying for images. `just animate` reuses the saved storyboard, and creates one first if there isn't one yet. Every step skips work that's already done, so re-running is cheap.
 
-Running the image model locally:
-
-```sh
-just setup-local                     # once: mflux + FLUX.2 klein 4B saved at 4-bit (~15GB download)
-IMAGE_BACKEND=local just video 001   # or put IMAGE_BACKEND=local in .env
-```
-
-With `IMAGE_BACKEND=local`, frames and edits are drawn on this Mac by **FLUX.2 klein 4B via mflux** (Apache 2.0, 4-bit, 576x1024, 4 steps, fits a 16GB Mac) instead of Gemini. Small local models do better with short prompts, so the local path sends a compact prompt (`LOCAL_STYLE` in `animate.py`) with fewer reference images: the style reference plus the previous frame, or for edits the current frame plus the reference. To set the character's look, replace `animate/animate_reference.png` with a drawing of your own. Expect roughly 20-60s per image on an M-series Air; the first run of each command spends extra time loading the model. If `mflux-save` runs out of memory during setup, skip it: the script falls back to quantizing on load (slower start, same result). The saved model lives in `animate/models/` (git-ignored).
-
-Why text always uses Gemini: the storyboard and `just edit` planning are single text calls costing a few cents at most (~3k tokens in, a few thousand out; model set by `text_model` in `config.toml`). They're also where model quality matters most, since they decide every cut and scene. A local text model (e.g. qwen3:8b via Ollama, which was considered and dropped) would save less than a penny per video, do the job noticeably worse, and add a ~5GB download plus a running server. Images are where the cost is (~$0.034 each, $1+ per video), so that's the only step with a local option. The voiceover also stays on Gemini TTS (~1p per video).
-
 How it keeps frames coherent:
 
 1. **Storyboard** — one text-model call reads the whole script, with every word numbered, and decides how many frames there are and where each one starts. A cut can land on any word; the model picks the count and pacing itself (`MAX_FRAMES = 120` is only a safety limit). The only hard rules in the prompt: simple stick-figure art (the reference image is loose inspiration), line-drawn only (coloured lines fine, no fills), and continuity across the piece. The text model is `text_model` in `config.toml`. Each frame gets a concrete, drawable scene. The model also plans a `cast` and `settings` (fixed layout plus small background details), and gives every frame a `camera`: `move` (hold, zoom_in, zoom_out or pan), a rough `focus` point as fractions of the frame, and an optional `intensity` (0-1). When drawing, each frame gets its setting's description, and the first frame drawn in that setting is sent as an extra reference so the background stays put. Saved as `storyboard.json` (`{"start": word number, "text": the words it covers, "setting": ..., "scene": ..., "camera": {"move": ..., "focus": {"x": ..., "y": ...}, "intensity": ...}}`) and reused on later runs; `just storyboard <id> --replan` makes a fresh one and moves the old plan's frames to `history/before-replan-N/`, since they no longer match. Storyboards from before this change (one frame per line) still load as-is.
@@ -129,7 +118,7 @@ Output goes to `animate/out/` (git-ignored):
 
 - `<id>/storyboard.json` — the shot plan, plus any per-frame zoom overrides
 - `<id>/history/` — earlier versions of frames replaced by `just edit` / `just frame`
-- `<id>/frame-NN.jpg` (or `.png`; always `.png` locally) + `frame-NN.txt` — each image and the exact prompt used for it
+- `<id>/frame-NN.jpg` (or `.png`) + `frame-NN.txt` — each image and the exact prompt used for it
 - `<id>/voice.wav` + `voice.json` — the voiceover for the whole script, and the text/voice/style it was made from
 - `<id>/words.json` — timings for every word of the script (`[word, start, end]`)
 - `<id>.ass` — the captions that were burned in
