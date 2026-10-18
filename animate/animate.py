@@ -48,7 +48,7 @@ TEXT_MODEL = load_config()["text_model"]     # text: storyboard and edits; set i
 IMAGE_MODEL = "gemini-3.1-flash-lite-image"  # cheapest image model, ~$0.034 per image
 IMAGE_COST = 0.0336
 REFERENCE = HERE / "animate_reference.png"
-PREV_FRAMES = 2  # how many earlier frames to feed back in for continuity
+PREV_FRAMES = 4  # how many earlier frames to feed back in for continuity
 REQUEST_TIMEOUT = 240  # seconds per Gemini call; normal is 30-100s, without this a stalled call hangs forever
 OUT = HERE / "out"
 
