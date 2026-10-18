@@ -29,14 +29,14 @@ from animate import (
     establishing_frame, find_frame, frame_prompt, frame_text, generate_image, image_cost, load_board, local_edit_prompt,
     load_prompt, local_frame_prompt, read_note, run_cli, save_board,
 )
-from stitch import ZOOM, settings, stitch
+from stitch import ZOOM, camera, describe_camera, settings, stitch
 
 
 def plan_changes(request: str, lines: list[str], board: dict) -> list[dict]:
     rows = []
     for i, f in enumerate(board["frames"], 1):
         rows.append(f'{i:02d}. words: "{frame_text(board, lines, i)}"\n    scene: {f["scene"]}\n'
-                    f'    zoom: {settings(board, i):g}')
+                    f'    camera: {describe_camera(*camera(board, i))} (zoom {settings(board, i):g})')
     prompt = load_prompt(
         "edit_plan", n_frames=len(board["frames"]), frames="\n".join(rows),
         default_zoom=f"{ZOOM:g}", default_zoom_pct=f"{ZOOM:.0%}", request=request)

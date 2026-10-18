@@ -9,14 +9,14 @@ Usage:
 
 Steps:
   1. Storyboard: a cheap text model reads the whole script (every word numbered)
-     and decides how many frames there are and where each starts: on any word,
-     usually 2-6 seconds apart. Each frame gets one concrete, drawable scene.
+     and decides how many frames there are and where each starts (on any word).
+     Each frame gets one concrete, drawable scene and a camera move (see stitch.py).
   2. Frames: for each frame, the image model gets the style reference, the
      previous frame(s), the whole script with this frame's words marked, and
      its scene.
 
 Output goes to animate/out/<id>/:
-  storyboard.json   the shot plan: cast + frames [{start word, text, scene}]
+  storyboard.json   the shot plan: cast + frames [{start word, text, scene, camera}]
                     (reused on later runs; --replan to redo it)
   frame-NN.png      one image per storyboard frame
   frame-NN.txt      the exact prompt used for that frame
@@ -196,10 +196,9 @@ def read_note(nid: str) -> tuple[str, list[str]]:
     return title, lines
 
 
-WORDS_PER_SECOND = 2.5  # rough narration speed, for pacing guidance and estimates
+WORDS_PER_SECOND = 2.5  # rough narration speed, for estimates
 MAX_FRAMES = 120        # safety limit, not a target
-WORDS_PER_FRAME = 6     # target pacing: ~2.4s per frame, the cut rate of a typical Reel
-MAX_FRAME_WORDS = 10    # hard cap (~4s) given to the model; longer frames are warned about
+CAMERA_MOVES = ("hold", "zoom_in", "zoom_out", "pan")  # applied by stitch.py
 
 
 def script_words(lines: list[str]) -> list[str]:
@@ -288,10 +287,38 @@ def clean_frames(raw: list, words: list[str]) -> list[dict]:
             s = 0
         if s <= last or s >= n:
             continue
-        out.append({"start": s, "setting": str(f.get("setting") or "").strip(),
-                    "scene": str(f["scene"]).strip()})
+        frame = {"start": s, "setting": str(f.get("setting") or "").strip(), "scene": str(f["scene"]).strip()}
+        cam = clean_camera(f.get("camera"))
+        if cam:
+            frame["camera"] = cam
+        out.append(frame)
         last = s
     return out[:MAX_FRAMES]
+
+
+def clean_camera(raw) -> dict | None:
+    """Validate a frame's camera: {"move", "focus": {"x", "y"} (fractions, clamped to 0-1),
+    "intensity" (optional, 0-1)}. None if the move isn't recognised (stitch then uses its default)."""
+    if not isinstance(raw, dict):
+        return None
+    move = re.sub(r"[\s-]+", "_", str(raw.get("move") or "").strip().lower())
+    if move not in CAMERA_MOVES:
+        return None
+    focus = raw.get("focus")
+    if isinstance(focus, (list, tuple)) and len(focus) == 2:
+        focus = {"x": focus[0], "y": focus[1]}
+    focus = focus if isinstance(focus, dict) else {}
+
+    def frac(v, default):
+        try:
+            return round(max(0.0, min(1.0, float(v))), 3)
+        except (TypeError, ValueError):
+            return default
+
+    cam = {"move": move, "focus": {"x": frac(focus.get("x"), 0.5), "y": frac(focus.get("y"), 0.5)}}
+    if raw.get("intensity") is not None:
+        cam["intensity"] = frac(raw["intensity"], 0.5)
+    return cam
 
 
 def clean_settings(raw) -> list[dict]:
@@ -352,11 +379,8 @@ def with_text(board: dict, lines: list[str]) -> dict:
 
 def make_storyboard(title: str, lines: list[str]) -> dict:
     words = script_words(lines)
-    target = min(MAX_FRAMES, max(1, round(len(words) / WORDS_PER_FRAME)))
     prompt = load_prompt(
-        "storyboard", words_per_second=f"{WORDS_PER_SECOND:g}", target_frames=target,
-        max_frame_words=MAX_FRAME_WORDS, max_frames=MAX_FRAMES, last_word=len(words) - 1,
-        title=title, n_words=len(words), seconds=f"{len(words) / WORDS_PER_SECOND:.0f}",
+        "storyboard", last_word=len(words) - 1, title=title, n_words=len(words), seconds=f"{len(words) / WORDS_PER_SECOND:.0f}",
         script=numbered(lines))
     text = ask_text(prompt)
     try:
@@ -370,10 +394,6 @@ def make_storyboard(title: str, lines: list[str]) -> dict:
         board = {"cast": "The stick figure from the reference image."}
         settings = []
         frames = [{"start": s, "scene": line} for s, line in zip(line_starts(lines), lines)]
-    starts = [f["start"] for f in frames] + [len(words)]
-    long = [i + 1 for i, (s, e) in enumerate(zip(starts, starts[1:])) if e - s > MAX_FRAME_WORDS]
-    if long:
-        print(f"warning: frames {long} cover more than {MAX_FRAME_WORDS} words", file=sys.stderr)
     return with_text({"cast": board.get("cast", ""), "settings": settings, "frames": frames}, lines)
 
 
@@ -495,7 +515,10 @@ def print_storyboard(board: dict, lines: list[str], path: Path) -> None:
         print(f"SETTING {st['name']}: {st['look']}\n    background: {st['background']}\n")
     for i, ((s, e), f) in enumerate(zip(spans(board, lines), board["frames"]), 1):
         where = f"  [{f['setting']}]" if f.get("setting") else ""
-        print(f"{i:02d}. ~{(e - s) / WORDS_PER_SECOND:.1f}s{where}  \"{f['text']}\"\n    -> {f['scene']}\n")
+        cam = f.get("camera")
+        cam = (f"  {cam['move']} @ ({cam['focus']['x']:g}, {cam['focus']['y']:g})"
+               + (f" x{cam['intensity']:g}" if "intensity" in cam else "")) if cam else ""
+        print(f"{i:02d}. ~{(e - s) / WORDS_PER_SECOND:.1f}s{where}{cam}  \"{f['text']}\"\n    -> {f['scene']}\n")
     n = len(board["frames"])
     cost = f", ~${n * image_cost():.2f} in images" if image_cost() else ""
     print(f"{n} frames{cost}. saved: {path}")
