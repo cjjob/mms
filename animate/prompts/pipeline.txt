@@ -3,19 +3,23 @@ This is one episode of an ongoing series of short narrated videos for TikTok, In
 YouTube Shorts. Every episode should look and feel like part of the same series.
 1. Storyboard: a text model reads the whole narration and splits it into frames, one still image
    each. For each frame it writes a scene description and picks a camera move. It describes the
-   cast and settings once, so they are drawn the same way every time.
+   cast and settings once, so they are drawn the same way every time. A frame can also be a build
+   frame: the previous frame plus one new element, like the next bullet point appearing on a slide.
 2. Setting references: each setting is drawn once, empty, before any frame. Every frame in that
    place is drawn against it, so the place stays identical.
 3. Drawing: an image model draws each frame in its own call. It gets the series reference images,
    the setting reference, the previous frame, this brief, the series bible, the style guide, the
    cast, the setting and the frame's scene. It never sees later frames, so every scene description
    is complete on its own: who is there, what they are doing, which props, and where in the frame.
+   A build frame is drawn as an addition to the previous frame; then everything outside the new
+   element is copied back from the previous frame, pixel for pixel, so nothing already there moves.
 4. Quality check: a reviewer compares every frame with the references and its scene. A frame that
    is off-model, off-style, has writing in it, breaks the layout or breaks continuity is redrawn.
 5. Video: the frames are cut together over the voiceover, each on screen while its words are
    spoken (usually 1-4 seconds). Each frame gets a slow camera move, a crop of the finished image
    that zooms (up to {max_zoom_pct}) towards or away from its focus point, or pans towards it.
-   Captions are burned in over the caption band.
+   A frame and the build frames that add to it are one shot, sharing one camera move, so it
+   carries on smoothly while each new element appears. Captions are burned in over the caption band.
 
 FRAME LAYOUT (the storyboard plans for it, the drawing follows it, the quality check enforces it)
 - A vertical 9:16 frame.

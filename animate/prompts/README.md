@@ -28,7 +28,8 @@ available in every prompt.
 |---|---|---|
 | `storyboard.txt` | text model: plan cast, settings, frames and camera moves (`just storyboard`) | `title` `script` `n_words` `seconds` `last_word` |
 | `setting.txt` | image model: draw each setting once, empty, as its reference | `place` `look` `background` |
-| `frame.txt` | image model: draw one frame (`just animate`, edit redraws) | `frame` `n_frames` `cast` `setting` `script` `previous` `words` `scene` `continuity` `camera` `next` |
+| `frame.txt` | image model: draw one frame (`just animate`, edit redraws) | `frame` `n_frames` `cast` `setting` `script` `previous` `words` `scene` `continuity` `camera` `buildup` `next` |
+| `build.txt` | image model: draw a build frame, the previous frame plus one element | `frame` `prev` `n_frames` `cast` `adds` `later` `script` `words` `scene` |
 | `judge.txt` | judge model: pass/fail checklist for one frame (`qa.py`) | `frame` `n_frames` `cast` `present` `words` `scene` |
 | `edit_image.txt` | image model: targeted edit of a frame (`just edit`, qa fixes) | `frame` `n_frames` `instruction` `words` `scene` |
 | `edit_plan.txt` | text model: turn a `just edit` request into per-frame changes | `request` `n_frames` `frames` `default_zoom` `default_zoom_pct` |
@@ -36,5 +37,6 @@ available in every prompt.
 
 A few context lines are built in code because they depend on the frame: the image labels
 (`frame_images`), `{setting}` (`setting_block`), `{previous}` / `{next}` (the neighbouring
-frames' words and scenes), `{continuity}` and `{camera}` (`camera_note`), all in `animate.py`.
+frames' words and scenes), `{continuity}`, `{camera}` (`camera_note`), `{buildup}` (what the rest of a build group will add,
+so the first frame leaves room) and `{later}` (the same, for a build frame), all in `animate.py`.
 Each frame-NN.txt in the output folder records the exact images (in order) and prompt sent.
