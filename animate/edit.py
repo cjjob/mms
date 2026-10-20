@@ -16,6 +16,8 @@ Usage:
                       the result is checked (qa.py) and the verdict printed
    - image "redraw"-> the storyboard scene is updated and the frame is drawn fresh, like
                       `just animate` draws it, through the same quality gate (qa.py)
+   - rebuild       -> build frames that add to a changed frame are redrawn on top of it
+                      automatically (listed in the plan), so they don't show the old version
    Replaced frames are kept in <id>/history/ (frame-06.v1.jpg, ...). Later frames,
    voice and word timings are never touched.
 3. Rebuild the MP4 (local, ~30s).
@@ -27,8 +29,8 @@ import sys
 
 import qa
 from animate import (
-    IMAGE_COST, OUT, ask_text, find_frame, frame_images, frame_prompt, frame_text, generate_image,
-    load_board, load_prompt, prompt_record, read_note, run_cli, save_board,
+    IMAGE_COST, OUT, ask_text, build_base, find_frame, frame_images, frame_prompt, frame_text, generate_image,
+    group_of, is_build, load_board, load_prompt, prompt_record, read_note, run_cli, save_board,
 )
 from stitch import ZOOM, camera, describe_camera, settings, stitch
 
@@ -36,7 +38,9 @@ from stitch import ZOOM, camera, describe_camera, settings, stitch
 def plan_changes(request: str, lines: list[str], board: dict) -> list[dict]:
     rows = []
     for i, f in enumerate(board["frames"], 1):
-        rows.append(f'{i:02d}. words: "{frame_text(board, lines, i)}"\n    scene: {f["scene"]}\n'
+        shared = (f" (builds on frame {i - 1}; shares frame {group_of(board, i)[0]}'s camera)"
+                  if is_build(board, i) else "")
+        rows.append(f'{i:02d}.{shared} words: "{frame_text(board, lines, i)}"\n    scene: {f["scene"]}\n'
                     f'    camera: {describe_camera(*camera(board, i))} (zoom {settings(board, i):g})')
     prompt = load_prompt(
         "edit_plan", n_frames=len(board["frames"]), frames="\n".join(rows),
@@ -69,11 +73,28 @@ def validate(changes: list[dict], n: int) -> list[dict]:
     return out
 
 
+def with_rebuilds(changes: list[dict], board: dict) -> list[dict]:
+    """Add a "rebuild" for every build frame that adds to a frame whose image changes, so a build
+    group never shows a mix of old and new. Sorted by frame, so each is drawn on its new base."""
+    changed = {c["frame"] for c in changes if c["image"]}
+    extra = []
+    for i in sorted(changed):
+        j = i + 1
+        while is_build(board, j):
+            if j not in changed:
+                changed.add(j)
+                extra.append({"frame": j, "image": "rebuild", "instruction": None, "scene": None, "zoom": None})
+            j += 1
+    return sorted(changes + extra, key=lambda c: c["frame"])
+
+
 def describe(changes: list[dict], board: dict) -> str:
     rows = []
     for c in changes:
         i = c["frame"]
         zoom = settings(board, i)
+        if c["image"] == "rebuild":
+            rows.append(f"frame {i:02d}  rebuild: add to the new frame {i - 1:02d} again")
         if c["image"] == "edit":
             rows.append(f"frame {i:02d}  image edit: {c['instruction']}")
         if c["image"] == "redraw":
@@ -81,7 +102,9 @@ def describe(changes: list[dict], board: dict) -> str:
             if c["scene"] and c["instruction"]:
                 rows.append(f"           also: {c['instruction']}")
         if c["zoom"] is not None:
-            rows.append(f"frame {i:02d}  zoom {zoom:g} -> {c['zoom']:g}")
+            g = group_of(board, i)[0]
+            shared = f" (frame {g:02d}'s build group shares one camera)" if g != i or is_build(board, i + 1) else ""
+            rows.append(f"frame {i:02d}  zoom {zoom:g} -> {c['zoom']:g}{shared}")
     return "\n".join(rows)
 
 
@@ -110,12 +133,12 @@ def apply(changes: list[dict], note: str, lines: list[str], board: dict) -> None
     outdir = OUT / note
     overrides = board.setdefault("overrides", {})
     for c in changes:
-        i = c["frame"]
-        ov = overrides.setdefault(str(i), {})
+        i = str(group_of(board, c["frame"])[0])  # a build group's camera lives on its first frame
+        ov = overrides.setdefault(i, {})
         if c["zoom"] is not None:
             ov["zoom"] = c["zoom"]
         if not ov:
-            del overrides[str(i)]
+            del overrides[i]
     save_board(outdir, board)  # settings saved even if an image call fails below
 
     for c in changes:
@@ -132,10 +155,10 @@ def apply(changes: list[dict], note: str, lines: list[str], board: dict) -> None
             new = generate_image(prompt, images, outdir, f"{stem}.new")
             backup(outdir, i)
             new = new.rename(outdir / f"{stem}{new.suffix}")
-            result = qa.check(board, lines, i, frame_images(outdir, board, i), new)
+            result = qa.check(board, lines, i, frame_images(outdir, board, i), new, build_base(outdir, board, i))
             print(f"  check: {'pass' if result['passed'] else 'FAIL ' + ', '.join(result['failed'])}"
                   + (f": {result['problems']}" if result["problems"] else ""))
-        else:  # redraw (or edit with no current image)
+        else:  # redraw, rebuild (or edit with no current image)
             if c["scene"]:
                 board["frames"][i - 1]["scene"] = c["scene"]
                 save_board(outdir, board)
@@ -167,7 +190,7 @@ def main() -> None:
     else:
         print("planning...")
         raw = plan_changes(args.request, lines, board)
-    changes = validate(raw, len(board["frames"]))
+    changes = with_rebuilds(validate(raw, len(board["frames"])), board)
     if not changes:
         sys.exit("no changes to make")
 

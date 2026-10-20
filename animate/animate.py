@@ -14,6 +14,9 @@ Steps:
   2. Frames: for each frame, the image model gets the style reference, the
      previous frame(s), the whole script with this frame's words marked, and
      its scene.
+     A build frame ("build": true) is the previous frame plus one new element, like the
+     next bullet point on a slide: drawn as an addition to the previous frame, then
+     locked to it everywhere outside the addition (buildup.py).
 
 Output goes to animate/out/<id>/:
   storyboard.json   the shot plan: cast + frames [{start word, text, scene, camera}]
@@ -175,15 +178,26 @@ def read_note(nid: str) -> tuple[str, list[str]]:
         if current and raw.strip():
             fields[current].append(raw.strip())
     title = clean(" ".join(fields.get("Title", [])))
-    lines = [clean(line) for line in fields.get("Description", [])]
+    lines = [clean(spoken(line)) for line in fields.get("Description", [])]
     if not lines:
         sys.exit(f"{path.name}: Description is empty")
     return title, lines
 
 
+def spoken(line: str) -> str:
+    """A list item ("- Nap") as it's voiced and captioned: no marker, and ending in a full stop so
+    the voice pauses and the caption breaks after it. Other lines are unchanged."""
+    m = re.match(r"[-*+]\s+(.*)", line)
+    if not m:
+        return line
+    item = m.group(1).strip()
+    return item if item[-1:] in ".!?…:;," else item + "."
+
+
 WORDS_PER_SECOND = 2.5  # rough narration speed, for estimates
 MAX_FRAMES = 120        # safety limit, not a target
 CAMERA_MOVES = ("hold", "zoom_in", "zoom_out", "pan")  # applied by stitch.py
+MAX_BUILD_STEPS = 6     # build frames in a row before the plan check complains
 
 
 def script_words(lines: list[str]) -> list[str]:
@@ -256,7 +270,7 @@ def clean_frames(raw: list, words: list[str]) -> list[dict]:
     norm = lambda w: re.sub(r"\W", "", w.lower())
     n, out, last = len(words), [], -1
     for f in raw if isinstance(raw, list) else []:
-        if not isinstance(f, dict) or not str(f.get("scene") or "").strip():
+        if not isinstance(f, dict):
             continue
         try:
             s = int(f.get("start"))
@@ -272,14 +286,22 @@ def clean_frames(raw: list, words: list[str]) -> list[dict]:
             s = 0
         if s <= last or s >= n:
             continue
-        frame = {"start": s, "setting": str(f.get("setting") or "").strip(), "scene": str(f["scene"]).strip()}
+        scene, adds = str(f.get("scene") or "").strip(), str(f.get("adds") or "").strip()
+        build = str(f.get("build")).strip().lower() == "true" and bool(adds) and bool(out)
+        if build and not scene:
+            scene = f"{out[-1]['scene']} Now also: {adds}"
+        if not scene:
+            continue
+        frame = {"start": s, "setting": str(f.get("setting") or "").strip(), "scene": scene}
+        if build:  # same place as the frame it adds to; the camera is the group's (stitch.py)
+            frame.update(build=True, adds=adds, setting=out[-1]["setting"])
         present = f.get("cast")
         if isinstance(present, list):
             frame["cast"] = [str(c).strip() for c in present if str(c).strip()]
         if str(f.get("continuity") or "").strip():
             frame["continuity"] = str(f["continuity"]).strip()
         cam = clean_camera(f.get("camera"))
-        if cam:
+        if cam and not build:
             frame["camera"] = cam
         out.append(frame)
         last = s
@@ -335,6 +357,33 @@ def present_text(board: dict, i: int) -> str:
     return ", ".join(names) if names else "as the scene describes"
 
 
+def is_build(board: dict | None, i: int) -> bool:
+    """Frame i adds to frame i-1 rather than being a new picture."""
+    frames = (board or {}).get("frames") or []
+    return 1 < i <= len(frames) and bool(frames[i - 1].get("build"))
+
+
+def group_of(board: dict | None, i: int) -> tuple[int, int]:
+    """(first, last) frame of frame i's build group: a normal frame and the build frames after it.
+    (i, i) for a frame on its own. A group shares one camera move (stitch.py)."""
+    first, last = i, i
+    while is_build(board, first):
+        first -= 1
+    while is_build(board, last + 1):
+        last += 1
+    return first, last
+
+
+def build_base(outdir: Path, board: dict, i: int) -> Path | None:
+    """The image a build frame adds to (frame i-1), or None for a normal frame."""
+    return find_frame(outdir, i - 1) if is_build(board, i) else None
+
+
+def later_adds(board: dict, i: int) -> list[str]:
+    """What the rest of frame i's build group will add, in order."""
+    return [board["frames"][k - 1]["adds"] for k in range(i + 1, group_of(board, i)[1] + 1)]
+
+
 MAX_CAST_PER_FRAME = 3
 
 
@@ -358,8 +407,15 @@ def verify_board(board: dict) -> list[str]:
                 issues.append(f"frame {i}: {len(f['cast'])} characters (max {MAX_CAST_PER_FRAME})")
         if len(f["scene"].split()) < 8:
             issues.append(f"frame {i}: very short scene ({f['scene']!r})")
-        if not f.get("camera"):
+        if not f.get("camera") and not f.get("build"):
             issues.append(f"frame {i}: no valid camera, stitch uses its default")
+        first, last = group_of(board, i)
+        if i == last and last - first > MAX_BUILD_STEPS:
+            issues.append(f"frames {first}-{last}: {last - first} build steps in a row (max {MAX_BUILD_STEPS})")
+        cam = board["frames"][first - 1].get("camera") or {}
+        if i == first + 1 and cam.get("move") in ("zoom_in", "pan"):
+            issues.append(f"frame {first}: {cam['move']} on a build group can crop what's added later;"
+                          " hold or zoom_out is safer")
     return issues
 
 
@@ -434,6 +490,11 @@ def frame_images(outdir: Path, board: dict, i: int) -> Images:
     if st and (p := find_setting(outdir, st["name"])):
         images.append((f"Setting reference for {st['name']!r}: the empty place. Keep its layout and"
                        " background details exactly.", p))
+    if is_build(board, i):  # the frame this one adds to
+        if p := find_frame(outdir, i - 1):
+            images.append((f"Previous frame (frame {i - 1}): this frame adds to it; everything in it"
+                           " stays exactly as it is.", p))
+        return images
     for k in range(max(1, i - PREV_FRAMES), i):
         if p := find_frame(outdir, k):
             images.append((f"Previous frame (frame {k}): for continuity of poses, props and positions"
@@ -496,12 +557,23 @@ def frame_prompt(i: int, lines: list[str], board: dict) -> str:
     f = board["frames"][i - 1]
     neighbour = lambda k, what: (f'{what}: "{frame_text(board, lines, k)}" - {board["frames"][k - 1]["scene"]}\n'
                                  if 1 <= k <= n else "")
+    later = "; ".join(later_adds(board, i))
+    if f.get("build"):
+        todo = (f"STILL TO COME (later frames add these one at a time; don't draw them, keep their space"
+                f" clear): {later}\n") if later else ""
+        return load_prompt(
+            "build", frame=i, prev=i - 1, n_frames=n, cast=cast_text(board), adds=f["adds"], later=todo,
+            script=marked_script(board, lines, i), words=frame_text(board, lines, i), scene=f["scene"])
+    buildup = (f"BUILD-UP: the next frames add to this picture one element at a time, like bullet points"
+               f" appearing on a slide: {later}. Don't draw any of them yet, but leave clear, empty space"
+               f" for each where it will go.\n") if later else ""
     continuity = f"CHANGED SINCE THE PREVIOUS FRAME: {f['continuity']}\n" if f.get("continuity") else ""
     return load_prompt(
         "frame", frame=i, n_frames=n, cast=cast_text(board), setting=setting_block(board, i),
         script=marked_script(board, lines, i), previous=neighbour(i - 1, "PREVIOUS FRAME"),
         words=frame_text(board, lines, i), scene=f["scene"], continuity=continuity,
-        camera=camera_note(board, i), next=neighbour(i + 1, "NEXT FRAME (drawn after this one)"))
+        camera=camera_note(board, i), buildup=buildup,
+        next=neighbour(i + 1, "NEXT FRAME (drawn after this one)"))
 
 
 def prompt_record(prompt: str, images: Images) -> str:
@@ -554,6 +626,21 @@ def generate_image(prompt: str, images: Images, outdir: Path, stem: str) -> Path
     return path
 
 
+def generate_frame(prompt: str, images: Images, outdir: Path, stem: str, base: Path | None = None,
+                   raw_dir: Path | None = None) -> Path:
+    """generate_image(); for a build frame (base = the frame it adds to), then lock everything outside
+    the addition to base (buildup.py), saved as outdir/stem.png. The unlocked drawing is kept in
+    raw_dir (default outdir) as stem.raw.*."""
+    if not base:
+        return generate_image(prompt, images, outdir, stem)
+    from buildup import lock
+
+    raw_dir = raw_dir or outdir
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    raw = generate_image(prompt, images, raw_dir, f"{stem}.raw")
+    return lock(base, raw, outdir / f"{stem}.png")
+
+
 _client = None
 
 
@@ -591,10 +678,15 @@ def print_storyboard(board: dict, lines: list[str], path: Path) -> None:
         cam = (f"  {cam['move']} @ ({cam['focus']['x']:g}, {cam['focus']['y']:g})"
                + (f" x{cam['intensity']:g}" if "intensity" in cam else "")) if cam else ""
         who = f"  ({', '.join(f['cast'])})" if f.get("cast") else ""
+        if f.get("build"):
+            print(f"{i:02d}. ~{(e - s) / WORDS_PER_SECOND:.1f}s  + adds to {i - 1:02d}{who}  \"{f['text']}\"\n"
+                  f"    + {f['adds']}\n")
+            continue
         print(f"{i:02d}. ~{(e - s) / WORDS_PER_SECOND:.1f}s{where}{cam}{who}  \"{f['text']}\"\n    -> {f['scene']}\n"
               + (f"    changed: {f['continuity']}\n" if f.get("continuity") else ""))
     n = len(board["frames"]) + len(board.get("settings", []))
-    print(f"{len(board['frames'])} frames + {len(board.get('settings', []))} setting images,"
+    builds = sum(1 for f in board["frames"] if f.get("build"))
+    print(f"{len(board['frames'])} frames ({builds} build) + {len(board.get('settings', []))} setting images,"
           f" ~${n * IMAGE_COST:.2f} before any redraws. saved: {path}")
     for issue in verify_board(board):
         print(f"storyboard check: {issue}")
@@ -672,7 +764,7 @@ def main() -> None:
         t0 = time.monotonic()
         print(f"{time.strftime('%H:%M:%S')} {stem}: {frame_text(board, lines, i)[:60]}", flush=True)
         if args.no_qa:
-            generate_image(prompt, images, outdir, stem)
+            generate_frame(prompt, images, outdir, stem, build_base(outdir, board, i), outdir / "history")
         else:
             qa.draw_checked(outdir, board, lines, i, prompt, images)
         print(f"           done in {time.monotonic() - t0:.0f}s", flush=True)

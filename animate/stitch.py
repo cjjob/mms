@@ -8,7 +8,9 @@ The narration is voice.wav, the whole script voiced in one go (or, before
 `just voice`, SILENT_SECONDS of silence per line). Frames follow the
 storyboard: each one appears as its first word is spoken (word timings from
 words.json, or estimated) and stays until the next, with its storyboard camera move
-(hold / zoom in / zoom out / pan, a crop-and-scale over the frame's duration). Output is
+(hold / zoom in / zoom out / pan, a crop-and-scale over the frame's duration). A frame and
+the build frames that add to it are one shot: the first frame's camera move runs across
+the whole group, so it continues smoothly while elements appear. Output is
 animate/out/<id>.mp4 at 1080x1920, 30fps, H.264/AAC (TikTok/Reels-ready),
 plus <id>.ass, the caption file that was burned in.
 
@@ -31,8 +33,8 @@ import tempfile
 import wave
 from pathlib import Path
 
-from animate import (CAPTION_BOTTOM, MAX_ZOOM, OUT, find_frame, line_starts, load_board, read_note, run_cli,
-                     script_text, script_words)
+from animate import (CAPTION_BOTTOM, MAX_ZOOM, OUT, find_frame, group_of, line_starts, load_board, read_note,
+                     run_cli, script_text, script_words)
 
 HERE = Path(__file__).resolve().parent
 
@@ -71,7 +73,9 @@ def frames(outdir: Path) -> list[Path]:
 
 def camera(board: dict | None, i: int) -> tuple[str, float, float, float]:
     """(move, focus x, focus y, amount) for frame i. The storyboard's camera, unless `just edit`
-    set a zoom override (sign picks in/out; it keeps the focus). No camera: centred ZOOM zoom-in."""
+    set a zoom override (sign picks in/out; it keeps the focus). No camera: centred ZOOM zoom-in.
+    A build frame gets its group's camera: the first frame's."""
+    i = group_of(board, i)[0]
     frames = (board or {}).get("frames") or []
     cam = (frames[i - 1].get("camera") if i <= len(frames) else None) or {}
     focus = cam.get("focus") or {}
@@ -102,9 +106,11 @@ def wav_seconds(path: Path) -> float:
         return w.getnframes() / w.getframerate()
 
 
-def segment(img: Path, n: int, out: Path, cam: tuple = ("zoom_in", 0.5, 0.5, ZOOM)) -> None:
+def segment(img: Path, n: int, out: Path, cam: tuple = ("zoom_in", 0.5, 0.5, ZOOM), offset: int = 0,
+            total: int | None = None) -> None:
     """Render one frame as a silent clip of exactly n video frames, with camera move cam
-    (from camera()): a crop that scales and/or slides linearly over the clip.
+    (from camera()): a crop that scales and/or slides linearly over the clip. In a build group the
+    move spans the whole group: this clip is video frames offset..offset+n of a move total long.
       hold      the whole image, still
       zoom_in   crop shrinks from the whole image to 1/(1+amount) of it, centred on the focus
       zoom_out  the reverse
@@ -113,7 +119,7 @@ def segment(img: Path, n: int, out: Path, cam: tuple = ("zoom_in", 0.5, 0.5, ZOO
     move, x, y, amount = cam
     z0, z1 = {"zoom_in": (1, 1 + amount), "zoom_out": (1 + amount, 1), "pan": (1 + amount, 1 + amount)}.get(move, (1, 1))
     (x0, y0) = (1 - x, 1 - y) if move == "pan" else (x, y)  # crop centre at the start and end, as fractions
-    t = f"on/{max(1, n - 1)}"
+    t = f"({offset}+on)/{max(1, (total or n) - 1)}"
     lerp = lambda a, b: f"({a:.4f}+({b - a:.4f})*{t})"
     # Fill 9:16 by cropping (at 2x, to avoid zoompan jitter), then crop-and-scale per the move.
     vf = (
@@ -290,9 +296,12 @@ def stitch(note: str) -> None:
         parts = []
         for i, img in enumerate(imgs, 1):
             n, cam = bounds[i] - bounds[i - 1], camera(board, i)
-            print(f"{img.stem}: {n / FPS:.1f}s  {describe_camera(*cam)}")
+            first, last = group_of(board, i)
+            print(f"{img.stem}: {n / FPS:.1f}s  "
+                  + (f"+ adds to {i - 1:02d}" if first < i else describe_camera(*cam))
+                  + (f" (over frames {first:02d}-{last:02d})" if first == i < last else ""))
             part = tmp / f"{img.stem}.mp4"
-            segment(img, n, part, cam)
+            segment(img, n, part, cam, bounds[i - 1] - bounds[first - 1], bounds[last] - bounds[first - 1])
             parts.append(part)
 
         (tmp / "list.txt").write_text("".join(f"file '{p}'\n" for p in parts))

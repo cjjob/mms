@@ -7,6 +7,8 @@ Each new frame goes through two tiers of checks:
      references, the setting reference and the previous frame, and answers a fixed checklist
      with true/false per defect. Pass/fail per defect, not a 1-10 score: judges rank and spot
      defects reliably but can't score consistently.
+  3. build frames only (buildup.py): compared with the frame it adds to, how much changed (almost
+     nothing: nothing was added) and how much of its ink changed (a lot: redrawn, not added to).
 A frame that fails is redrawn, up to MAX_ATTEMPTS in total. A failure that's only stray writing is
 fixed with a targeted edit; anything else is redrawn from the clean references, with the judge's
 complaint added to the prompt. If every attempt fails, the attempt with the fewest failures is used
@@ -23,8 +25,8 @@ import sys
 from pathlib import Path
 
 from animate import (CAPTION_BOTTOM, CAPTION_TOP, JUDGE_MODEL, SAFE_LEFT, SAFE_RIGHT, SAFE_TOP, Images,
-                     ask_text, cast_text, find_frame, frame_images, frame_text, generate_image, load_prompt,
-                     present_text)
+                     ask_text, build_base, cast_text, find_frame, frame_images, frame_text, generate_frame,
+                     load_prompt, present_text)
 
 MAX_ATTEMPTS = 3  # draws per frame, including the first
 
@@ -82,11 +84,23 @@ def judge(board: dict, lines: list[str], i: int, images: Images, frame: Path) ->
     return {}
 
 
-def check(board: dict, lines: list[str], i: int, images: Images, frame: Path) -> dict:
+def check(board: dict, lines: list[str], i: int, images: Images, frame: Path, base: Path | None = None) -> dict:
+    """Pixel checks and the judge for frame i; base is the frame a build frame adds to (build_base)."""
     metrics, failed = pixel_checks(frame)
     verdict = judge(board, lines, i, images, frame)
     failed += [c for c in CHECKS if verdict.get(c) is False] if verdict else ["not_judged"]
     problems = verdict.get("problems", "")
+    if base:
+        from buildup import CHANGED_MIN, MOVED_MAX, measure
+
+        metrics.update({k: round(v, 4) for k, v in measure(base, frame).items()})
+        if metrics["changed"] < CHANGED_MIN:
+            failed.append("build_missing")
+            problems += f" Nothing was added to the previous frame; add: {board['frames'][i - 1]['adds']}"
+        elif metrics["moved"] > MOVED_MAX:
+            failed.append("build_drift")
+            problems += (" Too much of the previous frame was redrawn: keep everything already there exactly"
+                         " as it is and add only the new element.")
     if "colour_sparing" in failed:
         problems += " Too much colour; use colour only in lines and small accents."
     if "white_background" in failed:
@@ -101,6 +115,7 @@ def draw_checked(outdir: Path, board: dict, lines: list[str], i: int, prompt: st
     before_save() runs just before the chosen attempt becomes frame-NN (edit.py backs up the old one)."""
     stem, hist = f"frame-{i:02d}", outdir / "history" / "qa"
     hist.mkdir(parents=True, exist_ok=True)
+    base = build_base(outdir, board, i)  # a build frame is locked to the frame it adds to
     attempts: list[tuple[Path, dict]] = []
     for k in range(1, MAX_ATTEMPTS + 1):
         last = attempts[-1] if attempts else None
@@ -109,13 +124,14 @@ def draw_checked(outdir: Path, board: dict, lines: list[str], i: int, prompt: st
             fix = load_prompt("edit_image", frame=i, n_frames=len(board["frames"]),
                               instruction=f"Fix this: {last[1]['problems']}",
                               words=frame_text(board, lines, i), scene=board["frames"][i - 1]["scene"])
-            path = generate_image(fix, [("CURRENT FRAME (the one to edit)", last[0]), *images], hist, f"{stem}.try{k}")
+            path = generate_frame(fix, [("CURRENT FRAME (the one to edit)", last[0]), *images], hist,
+                                  f"{stem}.try{k}", base)
         else:
             how = "draw" if not last else "redraw"
             feedback = (f"\n\nA PREVIOUS ATTEMPT AT THIS FRAME WAS REJECTED: {last[1]['problems']} "
                         "Draw it fresh and get this right.") if last else ""
-            path = generate_image(prompt + feedback, images, hist, f"{stem}.try{k}")
-        result = check(board, lines, i, images, path)
+            path = generate_frame(prompt + feedback, images, hist, f"{stem}.try{k}", base)
+        result = check(board, lines, i, images, path, base)
         attempts.append((path, result))
         status = "pass" if result["passed"] else f"FAIL {', '.join(result['failed'])}: {result['problems']}"
         print(f"           try {k} ({how}): {status}", flush=True)
@@ -156,10 +172,11 @@ def report(outdir: Path, board: dict, lines: list[str]) -> None:
         frame = find_frame(outdir, i)
         if not frame:
             continue
-        result = check(board, lines, i, frame_images(outdir, board, i), frame)
+        result = check(board, lines, i, frame_images(outdir, board, i), frame, build_base(outdir, board, i))
         m = result["metrics"]
         print(f"frame-{i:02d}: {'pass' if result['passed'] else 'FAIL ' + ', '.join(result['failed'])}"
               f"  [caption band ink {m['caption_band_ink']:.1%}, top ink {m['top_ink']:.1%},"
-              f" colour {m['colour']:.1%}, white {m['white']:.0%}]"
+              f" colour {m['colour']:.1%}, white {m['white']:.0%}"
+              + (f", changed {m['changed']:.1%}, moved {m['moved']:.0%}" if "changed" in m else "") + "]"
               + (f"\n    {result['problems']}" if result["problems"] else ""), flush=True)
         record(outdir, i, {**result, "attempts": 0, "chosen": frame.name, "check_only": True})

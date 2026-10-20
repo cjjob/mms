@@ -19,6 +19,6 @@ CAST: {cast}
 
 {previous}THIS FRAME'S WORDS: "{words}"
 SCENE TO DRAW: {scene}
-{continuity}{camera}{next}
+{continuity}{camera}{buildup}{next}
 If the scene has a comic beat, sell it with clear, exaggerated faces and body language.
 REMEMBER THE STYLE: {style}

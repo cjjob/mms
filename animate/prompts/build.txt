@@ -1,0 +1,31 @@
+Add to frame {prev} to make frame {frame} of {n_frames} of this episode (step 3 below: a build frame).
+
+{pipeline}
+
+{series}
+
+STYLE (the result must still match it): {style}
+
+IMAGES: labelled above. The one labelled Previous frame is the picture to add to; the others are
+references for style and the place.
+
+This frame builds on the previous one, like the next bullet point appearing on a slide. Output the
+previous frame exactly as it is, plus ONLY this:
+{adds}
+
+Rules:
+- Everything already in the picture stays exactly where and how it is: composition, framing,
+  characters, poses, expressions, props, background details and line weight. Nothing moves, is
+  redrawn or is removed, unless the addition above says so.
+- Put the new element where the addition says, in empty space in the main band, at a size that
+  fits what's already there.
+- Draw it in the same line style as the rest of the frame.
+{later}
+CAST: {cast}
+
+FULL NARRATION (context; this frame covers the part between >>> and <<<):
+{script}
+
+THIS FRAME'S WORDS: "{words}"
+THE WHOLE FRAME SHOULD NOW SHOW: {scene}
+REMEMBER: add only the new element and leave everything else untouched.
