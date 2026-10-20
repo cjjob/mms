@@ -4,33 +4,34 @@ ID:
 Title: Just don't quit
 
 
-Subtitle: The only way to guarantee failure is to quit.
+Subtitle: The only guaranteed way to fail is to quit.
 
 
 Description
 Do anything other than quit.
 
-You don't have to do everything to it's end. Sometimes things simply aren't for you. That's not quitting. If you stop, reorient, and continue in a new direction... that's expected. It's normal. It's progress.
+Changing direction isn't quitting. Sometimes a thing just isn't for you. Stop, reorient, go again. That's normal. That's progress.
 
-But *do not quit on yourself*.
+But *never quit on yourself*.
 
-Also beware or reorienting too often. This could be quitting in disguise. If everything outside is always wrong, you need to look inside.
+And be careful. Reorienting all the time can be quitting in disguise. If the problem is always out there, look inside.
 
-Now, let's say you're on the path. You're sure it's right. But it's hard. DO NOT QUIT. Do one of the following:
+So, you're on the right path. You know it is. But it's hard.
+
+DON'T QUIT. Instead:
 - Complain
 - Eat ice cream
-- Go for walk - in nature = better
+- Go for a walk. In nature, even better.
 - Nap
-- Meditate
-- Talk to friends
-- Take a day, or longer, off
-- Binge watch your favourite TV series
-- etc.
+- Talk to a friend
+- Binge your favourite show
+- Take a day off. Or a week.
 
-Then continue. You didn't quit. You had a break. We all do. Go again. You got this.
+Then go again. You didn't quit. You took a break. We all do.
 
+The difference between people who do awesome things and people who don't? One group just doesn't quit.
 
-The biggest difference between people that do awesome things and people that don't is that one group just does not quit.
+You've got this.
 
 
 # URLs to supporting videos.
@@ -44,4 +45,3 @@ Links:
 # The generation script handles linking etc.
 # 000-999
 Related:
-
