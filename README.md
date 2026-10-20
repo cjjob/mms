@@ -68,6 +68,7 @@ just align 001                 # find when each word is spoken (skipped for Elev
 just stitch 001                # build animate/out/001.mp4 with captions
 
 just video 001                 # or everything in one go (each step skips work already done)
+just video 001 --force         #   new storyboard and new frames (old ones to history/); keeps the voice
 ```
 
 The steps form two independent branches off the note, which only meet at `stitch`. So the voice can be drafted before, after or alongside the storyboard and frames (read top to bottom):

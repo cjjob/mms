@@ -51,8 +51,8 @@ align note *args:
 stitch note *args:
     .venv/bin/python animate/stitch.py {{note}} {{args}}
 
-# Whole pipeline for one note: frames, voiceover, word timings, MP4 (each step skips work already done)
-video note: (animate note) (voice note) (align note) (stitch note)
+# Whole pipeline for one note: frames, voiceover, word timings, MP4 (each step skips work already done); --force for a new storyboard and new frames
+video note *args: (animate note args) (voice note) (align note) (stitch note)
 
 # Change frames in plain English, e.g. `just edit 001 "make the trophy in frame 6 black and white"`; shows a plan and asks first
 edit note request *args:

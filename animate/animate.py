@@ -698,7 +698,9 @@ def main() -> None:
     ap.add_argument("--dry-run", action="store_true", help="write and print prompts, no API calls")
     ap.add_argument("--storyboard-only", action="store_true",
                     help="generate (or reuse) the storyboard, print it, and stop before images")
-    ap.add_argument("--replan", action="store_true", help="regenerate storyboard.json even if it exists")
+    ap.add_argument("--replan", "--force", action="store_true", dest="replan",
+                    help="regenerate storyboard.json even if it exists, and so redraw every frame (old ones go"
+                         " to history/before-replan-N/)")
     ap.add_argument("--no-qa", action="store_true", help="skip the per-frame quality check and redraws")
     ap.add_argument("--qa-only", action="store_true",
                     help="check the existing frames and report; draws nothing (for calibrating)")
