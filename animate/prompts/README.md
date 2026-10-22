@@ -14,7 +14,7 @@ the drawing knows where its scene came from:
 | `pipeline.txt` | how the videos are made, step by step, and the frame layout | `{pipeline}`: all prompts |
 | `series.txt` | the series bible: purpose, tone, the fixed main character, continuity rules | `{series}`: all but `edit_plan` |
 | `style.txt` | the drawing style | `{style}`: all but `edit_plan` |
-| `references.txt` | the series reference images (`<name>: <role>` per line, file `animate/<name>.jpg`) | sent first, labelled, with every setting, frame, edit and check call (not the storyboard: shown images, it copies their content). A loose style guide, not a template |
+| `references.txt` | the series reference images (`<name>: <role>` per line, file `animate/<name>.jpg`) | sent first, labelled, with every setting, frame, thumbnail, edit and check call (not the storyboard: shown images, it copies their content). A loose style guide, not a template |
 
 Change these to change the look of the whole series; leave them alone between episodes to keep
 it consistent. The layout numbers (`{safe_top_pct}`, `{caption_top_pct}`, `{caption_bottom_pct}`,
@@ -30,6 +30,7 @@ available in every prompt.
 | `setting.txt` | image model: draw each setting once, empty, as its reference | `place` `look` `background` |
 | `frame.txt` | image model: draw one frame (`just animate`, edit redraws) | `frame` `n_frames` `cast` `setting` `script` `previous` `words` `scene` `continuity` `camera` `buildup` `next` |
 | `build.txt` | image model: draw a build frame, the previous frame plus one element | `frame` `prev` `n_frames` `cast` `adds` `later` `script` `words` `scene` |
+| `thumbnail.txt` | image model: the cover picture, with the top left empty for the title (`thumbnail.py`) | `title` `script` `cast` `art_top_pct` `art_bottom_pct` `art_left_pct` `art_right_pct` |
 | `judge.txt` | judge model: pass/fail checklist for one frame (`qa.py`) | `frame` `n_frames` `cast` `present` `words` `scene` |
 | `edit_image.txt` | image model: targeted edit of a frame (`just edit`, qa fixes) | `frame` `n_frames` `instruction` `words` `scene` |
 | `edit_plan.txt` | text model: turn a `just edit` request into per-frame changes | `request` `n_frames` `frames` `default_zoom` `default_zoom_pct` |

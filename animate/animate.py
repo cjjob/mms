@@ -17,12 +17,14 @@ Steps:
      A build frame ("build": true) is the previous frame plus one new element, like the
      next bullet point on a slide: drawn as an addition to the previous frame, then
      locked to it everywhere outside the addition (buildup.py).
+  3. Thumbnail: the cover picture with the title set over it (thumbnail.py); --no-thumbnail skips it.
 
 Output goes to animate/out/<id>/:
   storyboard.json   the shot plan: cast + frames [{start word, text, scene, camera}]
                     (reused on later runs; --replan to redo it)
   frame-NN.png      one image per storyboard frame
   frame-NN.txt      the exact prompt used for that frame
+  thumbnail-art.*   the cover picture, without the title (out/<id>-thumbnail.png has it)
 Existing frames are skipped. To change individual frames afterwards, use edit.py
 (`just edit` / `just frame`).
 
@@ -704,6 +706,8 @@ def main() -> None:
     ap.add_argument("--no-qa", action="store_true", help="skip the per-frame quality check and redraws")
     ap.add_argument("--qa-only", action="store_true",
                     help="check the existing frames and report; draws nothing (for calibrating)")
+    ap.add_argument("--no-thumbnail", action="store_true",
+                    help="don't make the cover thumbnail (thumbnail.py; made by default, after the frames)")
     args = ap.parse_args()
 
     title, lines = read_note(args.note)
@@ -719,7 +723,8 @@ def main() -> None:
     elif args.dry_run:
         sys.exit(f"no storyboard yet; run `just storyboard {args.note}` first (it's ~free)")
     else:
-        stale = sorted(p for p in [*outdir.glob("frame-*"), *outdir.glob("setting-*"), *outdir.glob("qa.json")]
+        stale = sorted(p for p in [*outdir.glob("frame-*"), *outdir.glob("setting-*"), *outdir.glob("thumbnail-*"),
+                                  *outdir.glob("qa.json")]
                        if p.is_file())
         if stale:  # images from the old plan don't match the new one
             k = 1
@@ -749,6 +754,9 @@ def main() -> None:
     n = len(board["frames"])
     todo = sum(1 for i in range(1, n + 1) if not find_frame(outdir, i))
     todo += sum(1 for st in board.get("settings", []) if not find_setting(outdir, st["name"]))
+    from thumbnail import find_art, make as make_thumbnail
+
+    todo += not args.no_thumbnail and not find_art(outdir)
     print(f"{n} frames, {todo} images to generate (~${todo * IMAGE_COST:.2f} before any redraws)")
 
     draw_settings(outdir, board, args.dry_run)
@@ -773,6 +781,8 @@ def main() -> None:
 
     if not args.dry_run and not args.no_qa:
         qa.summary(outdir, board)
+    if not args.no_thumbnail:
+        make_thumbnail(args.note, title, lines, board, dry_run=args.dry_run)
     print(f"done: {outdir}")
 
 

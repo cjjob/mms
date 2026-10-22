@@ -1,0 +1,36 @@
+Draw the cover thumbnail for this episode: one still image that shows what the whole episode is
+about at a glance, small, in a feed of other videos. It is not one of the frames (steps 1-5 below
+make those); it's the picture people see before they press play.
+
+{pipeline}
+
+{series}
+
+STYLE: {style}
+
+IMAGES: labelled above. The series references are a loose guide to the look only; never copy their
+content or composition.
+
+CAST: {cast}
+
+EPISODE TITLE: "{title}"
+FULL NARRATION:
+{script}
+
+WHAT TO DRAW: the episode's main theme as a single, bold visual metaphor, the one image that sums
+up the title and the narration. The main character is in it, large, with a clear, expressive face
+and pose. One idea only: the character plus one or two big, simple props, and almost nothing else.
+No background details, no secondary characters unless the idea needs one. It must read instantly
+at the size of a thumbnail: big shapes, thick confident lines, lots of white space around them.
+
+COVER LAYOUT (different from the frame layout above):
+- A vertical 9:16 image.
+- Top {art_top_pct} of the height: completely empty, plain white. The episode title is set
+  in type over this area afterwards, so nothing may be drawn there, not even a line.
+- From {art_top_pct} to {art_bottom_pct} of the way down, and from {art_left_pct} to
+  {art_right_pct} across: the drawing, filling this area and centred in it.
+- Below {art_bottom_pct}: plain white, or the simple ground line the character stands on.
+- The drawing is wordless: no title, letters, numbers, signs, labels or speech bubbles. The title
+  is added separately.
+
+REMEMBER THE STYLE: {style}

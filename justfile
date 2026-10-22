@@ -31,6 +31,10 @@ qa note:
 animate note *args:
     .venv/bin/python animate/animate.py {{note}} {{args}}
 
+# Cover thumbnail: the episode's theme as one picture, with the title set over it (made by `just animate` too); --redraw for a new picture
+thumbnail note *args:
+    .venv/bin/python animate/thumbnail.py {{note}} {{args}}
+
 # Voice the whole script in one clip (Gemini TTS, or ElevenLabs with VOICE_BACKEND=elevenlabs)
 voice note *args:
     .venv/bin/python animate/voice.py {{note}} {{args}}
@@ -51,7 +55,7 @@ align note *args:
 stitch note *args:
     .venv/bin/python animate/stitch.py {{note}} {{args}}
 
-# Whole pipeline for one note: frames, voiceover, word timings, MP4 (each step skips work already done); --force for a new storyboard and new frames
+# Whole pipeline for one note: frames, thumbnail, voiceover, word timings, MP4 (each step skips work already done); --force for a new storyboard and new frames; --no-thumbnail to skip the thumbnail
 video note *args: (animate note args) (voice note) (align note) (stitch note)
 
 # Change frames in plain English, e.g. `just edit 001 "make the trophy in frame 6 black and white"`; shows a plan and asks first
