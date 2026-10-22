@@ -825,11 +825,8 @@ def run_cli(fn) -> None:
     except KeyboardInterrupt:
         sys.exit(130)
     except Exception as e:
-        if type(e).__name__ in ("TimeoutException", "ReadTimeout", "ConnectTimeout", "WriteTimeout", "PoolTimeout"):
-            sys.exit(f"Gemini API call timed out after {REQUEST_TIMEOUT}s ({type(e).__name__}). "
-                     "Rerun to continue; finished frames are kept.")
-        if type(e).__module__.startswith("google."):
-            sys.exit(f"Gemini API error: {e}")
+        if type(e).__module__.startswith(("google.", "httpx")):  # the SDK's own message, unreworded
+            sys.exit(f"Gemini API error: {type(e).__name__}: {e}")
         raise
 
 
