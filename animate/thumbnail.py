@@ -36,8 +36,9 @@ TITLE_TOP, TITLE_BOTTOM = 0.14, 0.37  # the title is set in this band, which the
 ART_TOP, ART_BOTTOM = 0.41, 0.86      # the picture fills this band (a gap below the title: models draw a bit high)
 MARGIN = 0.08                         # left/right margin for the title and the picture
 
-# Title type: fixed, the same on every cover. Same face as the captions (stitch.py).
-FONT = "Arial Black"    # ships with macOS; or drop a .ttf in animate/fonts/ and name it here
+# Title type: fixed, the same on every cover.
+FONT = "Fredoka"        # animate/fonts/Fredoka.ttf, committed with its licence (OFL.txt); or any .ttf there
+FONT_WEIGHT = "Bold"    # named instance of a variable font (Fredoka: Light .. Bold); None for a static font
 MAX_SIZE, MIN_SIZE = 190, 70  # px; the largest size that fits the band is used
 LINE_SPACING = 1.08
 MAX_LINES = 4
@@ -118,6 +119,8 @@ def fit_title(title: str, draw, path: Path):
     max_w, max_h = W * (1 - 2 * MARGIN), H * (TITLE_BOTTOM - TITLE_TOP)
     for size in range(MAX_SIZE, MIN_SIZE - 1, -4):
         font = ImageFont.truetype(str(path), size)
+        if FONT_WEIGHT:
+            font.set_variation_by_name(FONT_WEIGHT)
         width = lambda s: draw.textlength(s, font=font) + 2 * STROKE
         for n in range(1, min(MAX_LINES, len(words)) + 1):
             if n * size * LINE_SPACING > max_h:
