@@ -62,6 +62,12 @@ video note *args: (animate note args) (voice note) (align note) (stitch note)
 edit note request *args:
     .venv/bin/python animate/edit.py {{note}} {{quote(request)}} {{args}}
 
+# After merging on GitHub: switch to main, pull, and delete local branches whose remote branch is gone
+tidy:
+    git checkout main
+    git pull --ff-only --prune
+    git for-each-ref --format='%(refname:short) %(upstream:track)' refs/heads | awk '$2 == "[gone]" {print $1}' | xargs git branch -D
+
 # Delete the run logs in logs/ (every animate/voice/align/stitch/edit run writes one)
 clean-logs:
     rm -rf logs
